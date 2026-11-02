@@ -135,17 +135,21 @@ Raw simulation data, trained models, checkpoints and previous experimental resul
 
 Use Git to track all meaningful changes and make experimental work reversible.
 
+- Always use the `git_*` MCP tools provided by the rainybenard-docker server for Git operations. These execute directly in WSL as the normal Linux user, outside Docker.
+- Never run Git inside Docker (e.g. through `docker_run` or `docker_python`).
 - Check the current branch and working-tree status before making changes.
 - Work on dedicated feature branches rather than directly on `main`.
 - Never discard, overwrite or revert existing user modifications.
-- Do not stage unrelated files.
+- Stage only files relevant to the task. Never stage the entire repository indiscriminately.
 - Review diffs before committing.
-- Do not run destructive commands such as `git reset --hard`, `git clean -fd` or force-push.
-- Never commit or push without explicit user approval.
+- Use `personal` (the user's fork) as the only push destination. Never push to `origin`, and never force-push.
+- Do not run destructive commands such as `git reset --hard` or `git clean -fd`.
+- When the user asks for work to be implemented, you are authorised to stage, commit and push the relevant completed changes to the user's branch on `personal`, after appropriate checks and tests. Do not ask for separate permission for each commit or push.
+- Never merge into upstream or modify upstream branches without explicit user approval. Here "upstream" means the original repository, `origin` (chowland/AFiD-MuRPhFi), not a branch's tracking branch on `personal`.
 - Do not change remotes, repository ownership or Git configuration without permission.
 - Explain significant modifications and provide a summary of changed files.
 
-The user must retain control over commits, pushes, merges and releases.
+The user retains control over merges, releases and any change to upstream.
 
 ## 8. Independent review and subagents
 
