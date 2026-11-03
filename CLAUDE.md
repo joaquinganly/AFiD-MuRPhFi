@@ -97,6 +97,15 @@ environment is the existing `my-tf-env:latest` image with TensorFlow 2.17.0
 and working NVIDIA GPU access. Do not rebuild or switch Docker images unless
 explicitly requested.
 
+### Long-running Docker jobs
+
+Observed (Nov 2026): a `docker_run` call that ran for several minutes returned "Device ... did not respond within 60s ... the tool may still be running there", yet the job kept running and finished. Until shown otherwise, assume the same for any `docker_run` or `docker_python` call longer than about 60 s.
+
+- Treat that timeout as "outcome unknown", not as a failure.
+- For jobs expected to take more than about 60 s, use `docker_run` (`docker_python` cannot redirect output), write unbuffered output to a log under `/workspace/tmp/` (git-ignored) and end the command with an exit-status line, e.g. `mkdir -p /workspace/tmp; python -u script.py > /workspace/tmp/job.log 2>&1; echo "EXIT $?" >> /workspace/tmp/job.log`. Check the log's last line with short follow-up calls. The job has finished only when the last line is `EXIT <code>`; output files can exist and keep growing while still being written.
+- Never re-run a timed-out job unless its log ends with `EXIT`. If the log has not changed for several minutes and has no `EXIT` line (e.g. the container was killed), report this to the user instead of re-running: two runs writing the same output file can corrupt it.
+- Split long work into per-folder or per-step calls where practical.
+
 ## 5. Working with the code
 
 Before making changes:
