@@ -75,6 +75,10 @@ Maximising predictive accuracy alone is not sufficient. The scientific meaning o
 
 Do not conflate the Rainy–Bénard numerical testbed with other physical systems or research projects unless explicitly instructed.
 
+### Simulation run folders
+
+Run folders in `examples/RainyBenard/simulations/` are named `Ra_<Ra>` (Pr = 1) or `Pr_<Pr>_Ra_<Ra>`, where `05` means 0.5 (e.g. `Pr_2_Ra_1e5`: Pr = 2, Ra = 1e5; `Ra_175e7`: Pr = 1, Ra = 1.75e9). A run's `bou.in` (RAYT, PRAT) and `humid.in` (α, β, γ, τ) are the authority when they exist: the solver reads its parameters from them, not from the folder name.
+
 ## 4. Computational environment
 
 - Host operating system: Windows with WSL2 (Ubuntu).
