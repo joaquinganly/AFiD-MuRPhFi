@@ -15,3 +15,8 @@ examples/*/*.ipynb
 tools/*.svg
 tools/*.png
 tools/*.mp4
+# v031/v032 ML scripts and their tests (everything else in simulations/ stays ignored)
+!examples/RainyBenard/simulations/v03[12]*.py
+!examples/RainyBenard/simulations/tests/
+examples/RainyBenard/simulations/tests/*
+!examples/RainyBenard/simulations/tests/*.py
