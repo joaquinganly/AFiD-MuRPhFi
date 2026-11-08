@@ -20,3 +20,7 @@ tools/*.mp4
 !examples/RainyBenard/simulations/tests/
 examples/RainyBenard/simulations/tests/*
 !examples/RainyBenard/simulations/tests/*.py
+# simulations_v2 setup scripts and the project changelog (run data stays ignored)
+!examples/RainyBenard/simulations_v2/make_runs.py
+!examples/RainyBenard/simulations_v2/run_queue.sh
+!examples/RainyBenard/changelog.txt
