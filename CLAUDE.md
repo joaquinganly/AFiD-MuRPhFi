@@ -139,6 +139,7 @@ Raw simulation data, trained models, checkpoints and previous experimental resul
 - Never overwrite or delete existing datasets, checkpoints, simulation results or figures without explicit permission.
 - Keep new experiments distinguishable from previous experiments.
 - Record relevant simulation parameters, model configurations, random seeds and software versions.
+- Log every change to code, simulation setup, datasets or experiment configuration in `examples/RainyBenard/changelog.txt` (newest entries first): date (YYYY-MM-DD), what changed, why, and where (file and log paths). Commit the entry together with the change, or on its own when the change is to git-ignored data.
 - Preserve the ability to reproduce previous experiments.
 - Verify which dataset, checkpoint and evaluation procedure produced a metric before reporting it.
 - Clearly distinguish training, validation and test results.

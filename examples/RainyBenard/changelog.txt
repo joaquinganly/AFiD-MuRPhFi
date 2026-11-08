@@ -7,6 +7,8 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 
 2026-11-08  simulations_v2 dataset (Lenovo Legion, WSL2)
 -------------------------------------------------------
+- CLAUDE.md, section 6: every change to code, simulation setup, datasets or experiment
+  configuration is now logged in this changelog and committed together with the change.
 - Launched the v2 batch (queue started 13:40):
     8 runs, Ra = 1e6, 5e6, 7.5e6, 1e7, 1.75e7, 2.5e7, 5e7, 1e8 (Ra list of Vinograd &
     Clark Di Leoni 2025, J. Fluid Mech. 1006, A10), Pr = 1.
