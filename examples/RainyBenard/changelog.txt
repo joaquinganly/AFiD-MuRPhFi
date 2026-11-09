@@ -5,6 +5,36 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-09  simulations_v2 post-processing (Q_d, Q_c, Q) and GIFs
+-----------------------------------------------------------------
+- simulations_v2/postprocess.py: post-processing of the v2 runs, ported from the established
+  pipeline (simulations/Staggered grid corrected/flat_layout_copies/: "Q staggered grid
+  efficient pathing.py", "saves_q_npz.py", "Qc and Qd only.py") with the same formulas, file
+  names, keys and (nz, ny, nt) float64 layout, so the v032 loaders can read the output.
+  Changes from the old scripts: input is outputdir/flowmov/movie_zcut.h5 (the v2 runs write no
+  fields/ files); Ra, Pr, grid and TFRAME are read from bou.in, alpha, beta, gamma and tau from
+  humid.in (they were parsed from folder names or hard-coded); buoyancy wall values 0 and
+  beta - 1 (src/flow_solver/SetTempBCs.F90, moist case); existing outputs are never
+  overwritten; <run>_fields_Q.npz and <run>_q.npz are written uncompressed (the old
+  compressed field files were 89-96% of their raw size; Q_c compresses to 8%).
+  Per run: <run>_fields_Q.npz (u, v, theta, rel_q, Q), <run>_q.npz (q), Q_d_c.npz (Q_d, Q_c),
+  postprocess.txt (provenance). The key Q in <run>_fields_Q.npz is the old pipeline's
+  finite-difference estimate of Db/Dt from the frames; the training target Q is Q_d + Q_c.
+  v is the horizontal velocity as stored by AFiD, half a cell offset in y (unchanged).
+- Tests: simulations_v2/tests/test_postprocess.py, run as a script (pytest is not in the
+  Docker image). It checks that the outputs match the old pipeline's stored outputs for the
+  old run Ra_5e6 (to 1e-12), that movie_zcut.h5 is identical to fields/*.h5, that the
+  parameters are parsed correctly, and runs end to end on a synthetic run folder. All pass.
+- Run on all 8 runs (about 13.6 GB per run, 109 GB in total): tmp/postprocess_v2.log.
+  Data check (tmp/v2_gifs/check_postprocess_v2.py, tmp/v2_gifs/check_postprocess_v2.log):
+  every run has 1001 frames, all values finite, Q_c >= 0. The domain budget d<b>/dt =
+  <Q_d + Q_c> holds with correlation 1.000 and relative RMS difference 0.3-2.6% (frame
+  differencing). Pointwise, the finite-difference Q agrees with Q_d + Q_c to < 0.1% relative
+  RMS at Ra <= 5e6 and 0.6% at 7.5e6, but only to 5-33% at Ra >= 1e7 (consistent with the
+  frame spacing of 1 time unit not resolving db/dt during bursts; not tested further).
+  Q_c > 0 at 1.4-5.3% of points (in the plumes, see the GIFs).
+- GIFs: simulations_v2/figures/v2_{b,Q_d,Q_c,Q}.gif (all 8 runs, every 5th frame, plus a
+  t = 500 PNG per field); script tmp/v2_gifs/make_gifs.py.
 2026-11-09  simulations_v2 batch finished and checked
 ----------------------------------------------------
 - All 8 runs ended normally (TMAX reached, run.log ends in "EXIT 0"; queue finished

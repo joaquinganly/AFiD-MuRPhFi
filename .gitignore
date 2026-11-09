@@ -24,3 +24,8 @@ examples/RainyBenard/simulations/tests/*
 !examples/RainyBenard/simulations_v2/make_runs.py
 !examples/RainyBenard/simulations_v2/run_queue.sh
 !examples/RainyBenard/changelog.txt
+# simulations_v2 post-processing script and its tests
+!examples/RainyBenard/simulations_v2/postprocess.py
+!examples/RainyBenard/simulations_v2/tests/
+examples/RainyBenard/simulations_v2/tests/*
+!examples/RainyBenard/simulations_v2/tests/*.py
