@@ -5,6 +5,29 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-09  test runs finished, checked and post-processed
+--------------------------------------------------------
+- Ra 8.7e6 and Ra 2e8 (relaunch 19:26) ended normally (EXIT 0, 3.28 h each). Post-processed
+  with simulations_v2/postprocess.py (tmp/postprocess_v2_test.log); GIFs
+  simulations_v2/figures/v2test_{b,Q_d,Q_c,Q}.gif (tmp/v2_gifs/make_gifs.py, now with --runs
+  and --prefix).
+- Simulation checks (tmp/check_v2_runs.py, now with an optional output folder and run list;
+  tmp/check_v2_runs_test.log, tmp/v2_checks_test/):
+    Ra 8.7e6: max CFL 0.42; b >= 5.87e-3, q >= 3.4e-4; no grid-scale oscillations; grid
+      spacing / (pi x Kolmogorov length) 0.26; 12.3 cells in the thinnest boundary layer
+      (minimum 3.8). Sustained, oscillating kinetic energy.
+    Ra 2e8: max CFL 0.58; grid spacing / (pi x Kolmogorov length) 0.75; 5.5 cells in the
+      thinnest (top) boundary layer, below the 6.2 from 0.35 Ra^0.15 (Shishkina et al. 2010).
+      q < 0 in 7 of 1001 frames, one cell each, always the row next to the dry top wall
+      (worst -1.1e-2 at t = 565, the strongest burst); three alternating extrema in a row
+      along z in 94 frames, up to 35 per frame, only near the top wall (z >= 0.84)
+      (tmp/diag_2e8_qneg.py, tmp/diag_2e8_qneg.log). Only two convective events in 1000 time
+      units (onset and t ~ 520-600); 258 frames with max |w| < 1e-3.
+- Post-processing check (tmp/v2_gifs/check_postprocess_v2_test.log): domain budget
+  d<b>/dt = <Q_d + Q_c> with correlation 1.000 and relative RMS 1.9% (8.7e6) and 1.8% (2e8);
+  finite-difference Q vs Q_d + Q_c relative RMS 3.9% (8.7e6) and 55% (2e8); Q_c > 0 at 3.4%
+  and 0.7% of points.
+
 2026-11-09  simulations_v2 test runs (held out from training)
 -------------------------------------------------------------
 - Two held-out runs, for testing the trained model only (never for training), with the same
