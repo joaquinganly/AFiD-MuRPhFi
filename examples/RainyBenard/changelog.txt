@@ -16,6 +16,11 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
   bou.in differs from the Ra 1e8 run only in RAYT; humid.in and drizzle.h5 are identical to
   the training runs. Log: tmp/make_test_runs.log. To be run with run_queue.sh (2 at a time,
   4 MPI processes each).
+- First launch (2026-11-09 19:22-19:23): the queue was cancelled by accident; both runs stopped
+  2-5 s after starting, before their first time step was written (run.log ends with EXIT 1 and
+  no solver error). Their outputdir/, provenance.txt and run.log were moved (not deleted) to
+  simulations_v2/aborted/Ra_2e8_Pr_1_20261109T1922 and Ra_8.7e6_Pr_1_20261109T1923, so that
+  run_queue.sh (which skips folders that already contain a run.log) starts the runs again.
 - simulations_v2/make_runs.py: TEST_RUNS list and "python make_runs.py [train|test]"
   (default train, which still refuses because the 8 folders exist); all bou.in contents are
   built before any folder is created.
