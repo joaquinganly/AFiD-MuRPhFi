@@ -5,6 +5,27 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-09  simulations_v2 test runs (held out from training)
+-------------------------------------------------------------
+- Two held-out runs, for testing the trained model only (never for training), with the same
+  setup as the 8 training runs (128 x 2048, dt = 1e-2, TMAX 1000, drizzle start, Pr 1,
+  humid.in unchanged):
+    Ra 8.7e6  between the periodic (7.5e6) and intermittent (1e7) regimes;
+    Ra 2e8    outside the training range (extrapolation).
+  Folders simulations_v2/runs/Ra_8.7e6_Pr_1 and Ra_2e8_Pr_1; their setup.txt says "set: test".
+  bou.in differs from the Ra 1e8 run only in RAYT; humid.in and drizzle.h5 are identical to
+  the training runs. Log: tmp/make_test_runs.log. To be run with run_queue.sh (2 at a time,
+  4 MPI processes each).
+- simulations_v2/make_runs.py: TEST_RUNS list and "python make_runs.py [train|test]"
+  (default train, which still refuses because the 8 folders exist); all bou.in contents are
+  built before any folder is created.
+- Expected resolution at Ra 2e8, extrapolated from the Ra 1e7 and 1e8 runs: grid spacing /
+  (pi x Kolmogorov length) about 0.75 (Groetzbach 1983: <= 1); about 5.9 cells in the thinnest
+  boundary layer against 6.1 from 0.35 Ra^0.15 (Shishkina et al. 2010, fitted for Pr ~ 0.7).
+  Just below that criterion; to be checked with tmp/check_v2_runs.py after the run.
+- postprocess.py processes every finished run in runs/, these two included; training scripts
+  must leave out TEST_RUNS.
+
 2026-11-09  simulations_v2 post-processing (Q_d, Q_c, Q) and GIFs
 -----------------------------------------------------------------
 - simulations_v2/postprocess.py: post-processing of the v2 runs, ported from the established
