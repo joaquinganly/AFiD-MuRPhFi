@@ -29,3 +29,7 @@ examples/RainyBenard/simulations/tests/*
 !examples/RainyBenard/simulations_v2/tests/
 examples/RainyBenard/simulations_v2/tests/*
 !examples/RainyBenard/simulations_v2/tests/*.py
+# simulations_v2 diagnostic scripts (their outputs go to tmp/, which stays ignored)
+!examples/RainyBenard/simulations_v2/diagnostics/
+examples/RainyBenard/simulations_v2/diagnostics/*
+!examples/RainyBenard/simulations_v2/diagnostics/*.py

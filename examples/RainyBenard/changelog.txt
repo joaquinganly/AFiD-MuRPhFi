@@ -5,6 +5,33 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-10  diagnostic scripts in git; handover document for the CNN work
+--------------------------------------------------------------------------
+- simulations_v2/diagnostics/: the 8 scripts behind the v2 checks, copied from tmp/ (repository
+  root, not in git) so the checks can be reproduced: check_runs_setup.py, check_v2_runs.py,
+  m_budget.py, plots_v2.py, hovmoller_v2.py, check_postprocess_v2.py, diag_qneg.py (was
+  diag_2e8_qneg.py; the run name is now an argument) and make_gifs.py. Outputs still go to
+  tmp/. Changes: check_runs_setup.py checks every run folder that has a bou.in (training and
+  test); check_v2_runs.py, plots_v2.py and hovmoller_v2.py refuse to overwrite existing
+  outputs; plots_v2.py and hovmoller_v2.py use the training runs only (setup.txt without
+  "set: test") and stop unless there are 8; check_postprocess_v2.py takes optional run names.
+  .gitignore: diagnostics/*.py un-ignored. Checks: diag_qneg.py and check_postprocess_v2.py
+  reproduce the earlier logs; check_runs_setup.py passes for all 11 runs.
+- Incident during these tests: before the guards were in place, plots_v2.py and
+  hovmoller_v2.py ran and overwrote their figures in tmp/v2_checks/, and a check_v2_runs.py
+  call that the Docker tool reported as timed out and "interrupted" kept running and
+  overwrote summary.txt, summary.json, ke_timeseries.png and the per-run time-series files
+  there with an 11-run version. Restored by re-running the fixed scripts: m_budget.png,
+  b_t1000.png, w_hovmoller.png and ke_timeseries.png are md5-identical to the originals; the
+  summary files list the 8 training runs again; the 3 extra time-series files (test runs) were
+  removed after checking they equal those in tmp/v2_checks_test*/. Two JSON transfer helpers
+  (pngs.json, hov.json) were not regenerated. Cause: dependent shell steps chained with ";"
+  instead of "&&" / set -e, and a script that writes outputs used as a test. CLAUDE.md lines
+  proposed, awaiting approval.
+- Handover document for the CNN work, in the claude.ai project
+  (claude/rainy_benard_v2_handover.md, not in git): why v1 was replaced, the v2 design choices
+  and their sources, results, post-processing, test set, and what the data imply for the CNN.
+
 2026-11-10  test run Ra 1.5e8
 -----------------------------
 - Third held-out test run, Ra 1.5e8 (Pr 1, same setup as all v2 runs): a milder extrapolation
