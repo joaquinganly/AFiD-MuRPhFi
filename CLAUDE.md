@@ -77,7 +77,11 @@ Do not conflate the Rainy–Bénard numerical testbed with other physical system
 
 ### Simulation run folders
 
-Run folders in `examples/RainyBenard/simulations/` are named `Ra_<Ra>` (Pr = 1) or `Pr_<Pr>_Ra_<Ra>`, where `05` means 0.5 (e.g. `Pr_2_Ra_1e5`: Pr = 2, Ra = 1e5; `Ra_175e7`: Pr = 1, Ra = 1.75e9). A run's `bou.in` (RAYT, PRAT) and `humid.in` (α, β, γ, τ) are the authority when they exist: the solver reads its parameters from them, not from the folder name.
+Run folders in `examples/RainyBenard/simulations/` (v1) are named `Ra_<Ra>` (Pr = 1) or `Pr_<Pr>_Ra_<Ra>`, with the decimal point, which would follow the first digit, dropped in both numbers: `05` means 0.5, `75e6` means 7.5e6 and `175e7` means 1.75e7 (e.g. `Pr_2_Ra_1e5`: Pr = 2, Ra = 1e5; `Ra_175e7`: Pr = 1, Ra = 1.75e7). Run folders in `examples/RainyBenard/simulations_v2/runs/` are named `Ra_<Ra>_Pr_<Pr>` and keep the decimal point (e.g. `Ra_7.5e6_Pr_1`).
+
+- Read Ra and Pr from the run's `bou.in` (RAYT, PRAT) and α, β, γ, τ from its `humid.in`, never from the folder name: the solver reads its parameters from these files. Where a run has no `bou.in`, check the folder-name Ra and Pr against κ = (Ra Pr)^(-1/2) inferred from its `chiT` output before using them (folder-name parsing gave the wrong Ra for three v1 runs; changelog 2026-11-08).
+- Generate run folders by script (e.g. `simulations_v2/make_runs.py`), so that the folder name and `bou.in` come from the same values. Never hand-edit RAYT or PRAT.
+- Reference setup: the box (1 x 16), the initial condition (drizzle state + noise), dt and the run length are not changed without asking the user.
 
 ## 4. Computational environment
 
@@ -101,6 +105,14 @@ environment is the existing `my-tf-env:latest` image with TensorFlow 2.17.0
 and working NVIDIA GPU access. Do not rebuild or switch Docker images unless
 explicitly requested.
 
+### Solver, tests and TensorFlow
+
+- afid runs natively in WSL, not in Docker (the image has no FFTW and a different MPI build). Claude prepares run folders and launch scripts; the user launches the runs (e.g. `simulations_v2/run_queue.sh`).
+- Tests are plain Python scripts, run as `python <test>.py`; pytest is not installed in `my-tf-env`.
+- `/workspace/tmp` is owned by root: write helper files there through `docker_run`. Files and folders that `docker_run` creates elsewhere in the repository are owned by root too; Claude runs `chown -R --reference=<parent folder> <path>` on them (through `docker_run`) before the user needs to write there from WSL.
+- On Ampere and newer NVIDIA GPUs (including this machine's), TensorFlow runs float32 matrix multiplications and convolutions in TF32 by default (10-bit mantissa). Any script that claims float32 must call `tf.config.experimental.enable_tensor_float_32_execution(False)`.
+- Pass per-sample loss weights as an extra target channel, not as Keras `sample_weight`: Keras documents `sample_weight` only per sample (1D) or per timestep (2D), and with the image-shaped losses here its handling differed between tf_keras 2.17 (failed) and Keras 3 (needed the loss's exact shape) in the v032 work.
+
 ### Long-running Docker jobs
 
 Observed (Nov 2026): a `docker_run` call that ran for several minutes returned "Device ... did not respond within 60s ... the tool may still be running there", yet the job kept running and finished. Until shown otherwise, assume the same for any `docker_run` or `docker_python` call longer than about 60 s.
@@ -109,6 +121,9 @@ Observed (Nov 2026): a `docker_run` call that ran for several minutes returned "
 - For jobs expected to take more than about 60 s, use `docker_run` (`docker_python` cannot redirect output), write unbuffered output to a log under `/workspace/tmp/` (git-ignored) and end the command with an exit-status line, e.g. `mkdir -p /workspace/tmp; python -u script.py > /workspace/tmp/job.log 2>&1; echo "EXIT $?" >> /workspace/tmp/job.log`. Check the log's last line with short follow-up calls. The job has finished only when the last line is `EXIT <code>`; output files can exist and keep growing while still being written.
 - Never re-run a timed-out job unless its log ends with `EXIT`. If the log has not changed for several minutes and has no `EXIT` line (e.g. the container was killed), report this to the user instead of re-running: two runs writing the same output file can corrupt it.
 - Split long work into per-folder or per-step calls where practical.
+- The same holds when the tool reports the call as "interrupted": on 2026-11-10 such a call kept running and overwrote outputs.
+- Run dependent shell steps under `set -e`, or join them with `&&`, so that a failed step stops the steps that depend on it; a bare `;` without `set -e` does not.
+- Never use a script that writes outputs as a test.
 
 ## 5. Working with the code
 
@@ -144,6 +159,8 @@ Raw simulation data, trained models, checkpoints and previous experimental resul
 - Verify which dataset, checkpoint and evaluation procedure produced a metric before reporting it.
 - Clearly distinguish training, validation and test results.
 - Do not make claims about model performance without checking the underlying data and evaluation procedure.
+- When a data defect is found in one run, test all runs for it before reporting its scope.
+- Data checks on buoyancy include a bounds check: b cannot fall below the minimum of its initial and boundary values (0 for these runs), by the minimum principle for D_t b - κ∇²b = Q_c, where Q_c = (γ/τ)(q - q_s) H(q - q_s) >= 0 (the model has no evaporation term) (Evans 2010, §7.1.4). Lower values are numerical errors.
 
 ## 7. Git workflow and version control
 
@@ -156,6 +173,7 @@ Use Git to track all meaningful changes and make experimental work reversible.
 - Never discard, overwrite or revert existing user modifications.
 - Stage only files relevant to the task. Never stage the entire repository indiscriminately.
 - Review diffs before committing.
+- Some files (e.g. this CLAUDE.md) use CRLF line endings and have no final newline; `project_write` saves LF. After any write, check `git_diff` for whole-file changes and restore the original line endings before committing.
 - Use `personal` (the user's fork) as the only push destination. Never push to `origin`, and never force-push.
 - Do not run destructive commands such as `git reset --hard` or `git clean -fd`.
 - When the user asks for work to be implemented, you are authorised to stage, commit and push the relevant completed changes to the user's branch on `personal`, after appropriate checks and tests. Do not ask for separate permission for each commit or push.
@@ -174,6 +192,7 @@ When possible:
 - Use a cost-efficient model appropriate to the review.
 - For scientific claims, ask the reviewer to independently verify the sources and scientific reasoning.
 - For code modifications, ask the reviewer to inspect the implementation for errors, unintended consequences and inconsistencies.
+- Reviewer and source-check subagents work only from the text and file contents included in their prompt (and, for source checks, the web). They must not read files on, or use tools that act on, the user's computer (device, Docker or git tools) unless the prompt explicitly asks.
 
 Do not claim that a subagent or independent review was performed if it was not available.
 
