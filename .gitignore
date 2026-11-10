@@ -38,3 +38,5 @@ examples/RainyBenard/simulations_v2/diagnostics/*
 examples/RainyBenard/simulations_v2/Convergence test/*
 !examples/RainyBenard/simulations_v2/Convergence test/*.py
 !examples/RainyBenard/simulations_v2/Convergence test/*.sh
+# v033 stencil CNN for the simulations_v2 data (its outputs in simulations_v2/v033/ stay ignored)
+!examples/RainyBenard/simulations_v2/v033 stencil CNN.py

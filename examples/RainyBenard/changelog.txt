@@ -5,6 +5,33 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-10  v033 stencil CNN for the simulations_v2 data (round 1; not yet trained)
+-----------------------------------------------------------------------------------
+- Decisions (with the user): the calibration stage continues with the v032 architecture (3x3
+  receptive field, 32 -> 64 -> 64, ReLU, periodic and ghost-value padding, Adam 1e-3,
+  ReduceLROnPlateau, early stopping, seeds 42-44, per-run relative-MSE loss, no reweighting of
+  plume cells). Each target gets the inputs its term depends on:
+    Q_d_a   b, log10 Ra -> Q_d          Q_d_b   b -> Q_d / kappa (= Lap b)
+    Q_c_C1  b, q, z     -> Q_c          Q_c_C2  b, q - q_s, z -> Q_c
+    Q_c_C3  b, q        -> Q_c          Q_c_C4  b, q - q_s    -> Q_c
+  (a 2 x 2 design {q, q - q_s} x {with z, without z}; Q as a whole later). log10 Pr dropped (Pr = 1).
+  Split by time block within every training run: training frames 25..750, validation frames
+  811..1000 (a 60-frame gap, 3 x the longest decorrelation time of the unsteady runs; Roberts et
+  al. 2017), every 3rd frame. Frames 0..24 (no convection, kinetic energy < 1e-4) unused. Test runs
+  Ra 8.7e6 and 1.5e8 (never loaded in training); Ra 2e8 dropped from the test set (under-resolved
+  top boundary layer). Block placement from the kinetic-energy time series (tmp/v2_checks/ts_*.npz):
+  the final 20% block holds on average 22% of each run's top-10% kinetic-energy frames (0-40% per
+  run, 0 for Ra 7.5e6), better than 2 or 3 spread blocks, which also lose 3-5x more frames to gaps.
+- simulations_v2/v033 stencil CNN.py (new; port of simulations/v032 stencil CNN.py): v2 run lists;
+  Ra, Pr and grid from bou.in and alpha, beta from humid.in through postprocess.py; 128 x 2048;
+  CONFIGS; each array reduced to the frames used right after it is read; normalisation from the
+  training frames only; run weights per run and block. Usage: python "v033 stencil CNN.py" <config> [seeds].
+- simulations_v2/tests/test_v033_stencil_cnn.py (new; port of the v032 test): padding and Laplacian
+  on the 128 x 2048 grid, receptive field, and frames, inputs, targets, normalisation, weights,
+  generator and refusals on synthetic run folders; end-to-end smoke test. All pass
+  (tmp/v033_tests/test_v033.log). Independent review: no leakage or bookkeeping errors; no changes.
+- .gitignore: the v033 script un-ignored.
+
 2026-11-10  CLAUDE.md: approved additions
 -----------------------------------------
 - Section 3: run-folder naming fixed (Ra_175e7 is Ra = 1.75e7, not 1.75e9: in v1 names the
