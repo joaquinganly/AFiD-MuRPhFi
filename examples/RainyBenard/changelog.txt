@@ -5,6 +5,23 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-10  convergence test: results
+-----------------------------------
+- Both restarts ended normally (EXIT 0, about 2.4 min each, run together; afid md5
+  087ae6b8f96d0b0433546efac48f56b3, as the source runs). 1002 frames each (frame k at
+  t = T0 + 0.01 k, k = 0..1001), 9.9 GB of movie per run. Frame 0 of each is identical to the
+  source run's last movie frame (temp, qhum, vx, vy): the restart reproduces the state exactly.
+- simulations_v2/Convergence test/analyse_convergence.py (tmp/convergence/analyse_convergence.log):
+  relative RMS of D_t b + A - (Q_d + Q_c) for frame spacings h = k dt, k = 1..100, 2nd- and
+  4th-order central differences, centre frames 200..800 every 50, medians over centres.
+    Ra 1e6 (steady): 3.3e-11 at every h with both stencils, so the post-processing stencils equal
+      the solver's to round-off.
+    Ra 1e8 (during a convective event): 2nd order 1.29 at h = 1, 5.5e-2 at h = 0.1, 1.5e-3 at
+      h = dt. Observed order 1.4-1.8 (2nd-order stencil) and 1.2-2.7 (4th-order stencil, no more
+      accurate than the 2nd-order one at small h), below the 2 and 4 expected for a smooth b(t).
+      Hypothesis, not tested: the kink of Q_c at q = q_s makes d2b/dt2 jump where a cell crosses
+      saturation (local error O(h) in a fraction of cells proportional to h, RMS ~ h^1.5).
+
 2026-11-10  convergence test of the finite-difference Db/Dt against Q_d + Q_c
 -----------------------------------------------------------------------------
 - Read-only check (tmp/fd_vs_rhs/check_fd_vs_rhs.py, tmp/fd_vs_rhs/check_fd_vs_rhs.log; 19 frames
