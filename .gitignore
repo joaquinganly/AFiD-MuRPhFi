@@ -33,3 +33,8 @@ examples/RainyBenard/simulations_v2/tests/*
 !examples/RainyBenard/simulations_v2/diagnostics/
 examples/RainyBenard/simulations_v2/diagnostics/*
 !examples/RainyBenard/simulations_v2/diagnostics/*.py
+# convergence test (frames every solver step): setup and launch scripts (run data stays ignored)
+!examples/RainyBenard/simulations_v2/Convergence test/
+examples/RainyBenard/simulations_v2/Convergence test/*
+!examples/RainyBenard/simulations_v2/Convergence test/*.py
+!examples/RainyBenard/simulations_v2/Convergence test/*.sh

@@ -5,6 +5,31 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-10  convergence test of the finite-difference Db/Dt against Q_d + Q_c
+-----------------------------------------------------------------------------
+- Read-only check (tmp/fd_vs_rhs/check_fd_vs_rhs.py, tmp/fd_vs_rhs/check_fd_vs_rhs.log; 19 frames
+  per run, all 11 runs): the stored key Q (central difference of the 1-time-unit frames plus
+  flux-form advection) against Q_d + Q_c. The post-processing stencils are the solver's own
+  (ExplicitTermsTemp.F90; ImplicitAndUpdateTemp.F90 with second_derivative_coeff in grid.F90;
+  AddCondensation in moisture.F90; kappa = 1/pect = (Ra Pr)^-1/2), so the difference is time
+  discretisation only. Median relative RMS difference: 2.8e-8 at Ra 1e6 (steady; best frame
+  6.6e-11), 2.0e-4 at 5e6, 5.8e-3 at 7.5e6, 4-10% at 8.7e6-2.5e7, 16% at 5e7, 29% at 1e8,
+  45-58% at 1.5e8 and 2e8; >= 1 in burst frames at Ra >= 1e7. Doubling the frame spacing
+  multiplies it by 2.9-3.5 and a 4th-order stencil reduces it 2-6x, so the truncation error of
+  the frame differencing dominates.
+- To measure the convergence directly: simulations_v2/Convergence test/ (new).
+  make_convergence_runs.py creates Ra_1e6_Pr_1 (steady: a control) and Ra_1e8_Pr_1 (a convective
+  event is under way at t ~ 995-1000): restarts from the end state (t = T0 = 1000.0099999992) of
+  the training runs of the same name, for 10 time units, with a movie frame at every step.
+  bou.in differs from the source run's only in NREAD 1 IRESET 1, TMAX 10.0 and TFRAME 1e-2.
+  IRESET 1 is required: movie frame keys are nint(time/TFRAME) in 5 digits
+  (src/h5tools/h5_tools.F90), which would overflow at t ~ 1000 with TFRAME 1e-2. Frame k is at
+  T0 + 0.01 k. humid.in and outputdir/continua_*.h5 copied unchanged (md5 in each setup.txt);
+  the source runs are only read. run_convergence.sh runs both at once (4 MPI processes each;
+  provenance.txt, run.log ending in EXIT, convergence.log); launched by the user in WSL.
+  Expected about 10.5 GB of movie per run. .gitignore: the folder's *.py and *.sh un-ignored.
+  Setup reviewed by an independent agent: no blocking issues.
+
 2026-11-10  diagnostic scripts in git; handover document for the CNN work
 --------------------------------------------------------------------------
 - simulations_v2/diagnostics/: the 8 scripts behind the v2 checks, copied from tmp/ (repository
