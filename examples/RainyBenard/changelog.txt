@@ -5,6 +5,27 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-10  test run Ra 1.5e8
+-----------------------------
+- Third held-out test run, Ra 1.5e8 (Pr 1, same setup as all v2 runs): a milder extrapolation
+  than Ra 2e8, whose top boundary layer is under-resolved at 128 x 2048. Created with
+  "python make_runs.py test 1.5e8" (simulations_v2/make_runs.py: Ra 1.5e8 added to TEST_RUNS;
+  extra arguments select runs of a set by Ra); bou.in differs from the Ra 1e8 run only in RAYT;
+  humid.in and drizzle.h5 identical to the other runs. Log: tmp/make_test_run_1.5e8.log.
+  Run 2026-11-09 23:55 to 2026-11-10 01:59 (alone, 4 MPI processes, EXIT 0, 2.07 h).
+- Checks (tmp/check_v2_runs_test2.log, tmp/v2_checks_test2/, tmp/diag_1.5e8_qneg.log): max
+  CFL 0.47; b >= 6.0e-3 and q >= 2.9e-4 (no q < 0); grid spacing / (pi x Kolmogorov length)
+  0.67; 6.3 cells in the thinnest boundary layer, above the 5.9 from 0.35 Ra^0.15 (Shishkina
+  et al. 2010). Three alternating extrema in a row along z in 117 frames, up to 18 per frame,
+  only near the top wall (z >= 0.94). Same diagnostic for comparison: training run Ra 1e8
+  82 frames, up to 6, z >= 0.92, no q < 0 (tmp/diag_1e8_qneg.log); Ra 2e8 94 frames, up to
+  35, z >= 0.84, q < 0 in 7 frames. Convective bursts at onset and near t ~ 440 and t ~ 930;
+  212 frames with max |w| < 1e-3 (Ra 1e8: 101; Ra 2e8: 258).
+- Post-processed with postprocess.py (tmp/postprocess_v2_test2.log). Data check
+  (tmp/v2_gifs/check_postprocess_v2_test2.log): domain budget correlation 1.000, relative RMS
+  2.5%; finite-difference Q vs Q_d + Q_c relative RMS 42%; Q_c > 0 at 1.0% of points.
+  GIFs: simulations_v2/figures/v2test15_{b,Q_d,Q_c,Q}.gif.
+
 2026-11-09  test runs finished, checked and post-processed
 --------------------------------------------------------
 - Ra 8.7e6 and Ra 2e8 (relaunch 19:26) ended normally (EXIT 0, 3.28 h each). Post-processed

@@ -4,8 +4,9 @@ that go into its bou.in, so name and parameters cannot disagree.
 Two sets, same setup:
   train  RUNS       the 8 training runs (default)
   test   TEST_RUNS  held-out runs for testing the trained model only (never used in training):
-                    Ra 8.7e6 between the periodic (7.5e6) and intermittent (1e7) regimes, and
-                    Ra 2e8 outside the training range (extrapolation)
+                    Ra 8.7e6 between the periodic (7.5e6) and intermittent (1e7) regimes,
+                    Ra 2e8 outside the training range (extrapolation; its top boundary layer is
+                    under-resolved at 128 x 2048), and Ra 1.5e8, a milder extrapolation
 
 bou.in   = examples/RainyBenard/bou.in (template) with only these lines changed:
            grid NXM x NYM x NZM (refined grid set equal), NREAD 0, TMAX, RAYT/PRAT,
@@ -14,7 +15,8 @@ humid.in = copied unchanged from examples/RainyBenard/humid.in.
 drizzle.h5 is written afterwards into each folder by tools/drizzle.py (initial drizzle
 state + 1e-3 noise added by the solver, NREAD 0).
 Refuses to touch an existing folder.
-Usage: python make_runs.py [train|test]   (inside the Docker container; paths below)"""
+Usage: python make_runs.py [train|test] [Ra ...]   (inside the Docker container; paths below)
+       e.g. python make_runs.py test 1.5e8   creates only that run of the set"""
 import hashlib
 import shutil
 import sys
@@ -25,7 +27,7 @@ RB = Path("/workspace/examples/RainyBenard")
 OUT = RB / "simulations_v2/runs"
 RUNS = [(1e6, 1.0), (5e6, 1.0), (7.5e6, 1.0), (1e7, 1.0),
         (1.75e7, 1.0), (2.5e7, 1.0), (5e7, 1.0), (1e8, 1.0)]
-TEST_RUNS = [(8.7e6, 1.0), (2e8, 1.0)]
+TEST_RUNS = [(8.7e6, 1.0), (2e8, 1.0), (1.5e8, 1.0)]
 SETS = {"train": (RUNS, "train"),
         "test": (TEST_RUNS, "test (held out: for testing the trained model only, not for training)")}
 NXM, NYM, NZM = 128, 2048, 1
@@ -52,9 +54,14 @@ def set_line(lines, header, values):
 
 
 which = sys.argv[1] if len(sys.argv) > 1 else "train"
-if which not in SETS or len(sys.argv) > 2:
-    sys.exit(f"usage: python make_runs.py [{'|'.join(SETS)}]")
+if which not in SETS:
+    sys.exit(f"usage: python make_runs.py [{'|'.join(SETS)}] [Ra ...]")
 runs, set_note = SETS[which]
+only = sys.argv[2:]
+if only:
+    runs = [r for r in runs if fmt(r[0]) in only]
+    if len(runs) != len(set(only)):
+        sys.exit(f"not in set {which}: {sorted(set(only) - {fmt(r[0]) for r in runs})}")
 template = (RB / "bou.in").read_text()
 lines = template.splitlines(keepends=True)
 if len(lines) != 55:
