@@ -5,6 +5,26 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-10  v033 round-1 training: 6 configurations x 3 seeds
+------------------------------------------------------------
+- Trained in Docker (GPU, TF32 off), one model after another: 11:54-12:52 by hand (Q_d_a), then
+  the queue tmp/v033_train/run_v033_queue.sh (13:09-20:55; it starts a model only if a worst
+  case of 75 min still fits in the 240-min limit of one Docker tool call, pauses otherwise, and
+  was re-launched twice). Logs tmp/v033_train/<config>_seed<s>.log (all EXIT 0) and
+  tmp/v033_train/queue.log; outputs simulations_v2/v033/<config>/ (config.json, summary.json,
+  seed_<s>/model.keras, histories, loss plots). 25-30 s per epoch.
+- Best validation loss (mean relative MSE over the 8 runs' validation blocks) and training loss
+  at that epoch, seeds 42 / 43 / 44:
+    Q_d_a   b, log10 Ra -> Q_d        val 0.503 / 0.481 / 0.481   train 0.442 / 0.446 / 0.488   18-22 epochs
+    Q_d_b   b -> Q_d / kappa          val 0.615 / 0.581 / 0.579   train 0.839 / 0.907 / 0.622   20-29 epochs
+    Q_c_C1  b, q, z -> Q_c            val 0.450 / 0.367 / 0.326   train 0.442 / 0.357 / 0.353   22-55 epochs
+    Q_c_C2  b, q - q_s, z -> Q_c      val 2.2e-3 / 2.4e-3 / 1.9e-3  train 1.9e-3 / 2.8e-3 / 2.1e-3  41-150 epochs
+    Q_c_C3  b, q -> Q_c               val 0.453 / 0.445 / 0.439   train 0.438 / 0.424 / 0.473   29-46 epochs
+    Q_c_C4  b, q - q_s -> Q_c         val 1.0e-3 / 1.7e-3 / 1.1e-3  train 9.0e-4 / 1.5e-3 / 8.5e-4  84-150 epochs
+  Q_d_a, Q_d_b, Q_c_C1 and Q_c_C3 under-fit (training loss close to the validation loss); Q_c_C2
+  seed 42 and Q_c_C4 seed 42 reached the 150-epoch limit while still improving. Not evaluated
+  yet (per-run errors, test runs, learned stencils): to be discussed with the user first.
+
 2026-11-10  v033 stencil CNN for the simulations_v2 data (round 1; not yet trained)
 -----------------------------------------------------------------------------------
 - Decisions (with the user): the calibration stage continues with the v032 architecture (3x3
