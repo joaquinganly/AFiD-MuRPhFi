@@ -5,6 +5,49 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-11  v033 round-1 evaluation: per-run errors, Q_d stencils, training curves, Q_c 2 x 2
+-------------------------------------------------------------------------------------------
+- simulations_v2/v033 evaluate.py (new): evaluates every v033 configuration and seed (imports the
+  training script for inputs, normalisation and padding; checks config.json and
+  normalization_constants.npz against it). (1) Relative RMS error per run on the training and
+  validation blocks and on the test runs, against the best function of height alone (the run's
+  mean profile of the target over the evaluated frames); the validation loss recomputed and
+  compared with the Keras history. (2) Q_d models: response of the prediction to b in the 3 x 3
+  neighbourhood by central differences, x dz^2 (/ kappa for Q_d), compared with the exact
+  [0 1 0; 1 -4 1; 0 1 0] (centre -5 in the wall rows). (3) Training curves and learning rates.
+  (4) Q_c 2 x 2 design ({q, q - q_s} x {with z, without z}): effects on log10 relative MSE with
+  the seeds as replicates (Box, Hunter & Hunter 2005, ch. 5); errors in condensing cells.
+  Q_d and Q_c in separate figures. Run in Docker 2026-11-10 23:51 to 2026-11-11 00:10 (19.4 min),
+  log tmp/v033_eval/evaluate.log (EXIT 0); outputs simulations_v2/v033/evaluation/ (summary.txt,
+  per_run_errors.csv, Qd_*.png, Qc_*.png).
+- simulations_v2/tests/test_v033_evaluate.py (new): factorial effects on hand-made numbers, the
+  z-profile reference, the stencil probe on a linear Laplacian model with the ghost padding, and
+  an end-to-end run on synthetic run folders (loss check, two records recomputed independently,
+  excluded run never read, no overwrite). Passes (tmp/v033_tests/test_v033_evaluate.log).
+- Results (simulations_v2/v033/evaluation/summary.txt; errors are means over the 3 seeds):
+  - Recomputed validation loss equals the Keras history at the best epoch to < 1e-6 (all 18 models).
+  - Q_d_a validation relative RMS error 0.44 (Ra 1e6) rising to 0.95 (Ra 1e8); best z-profile
+    0.91-0.99, so at Ra 1e8 the model is only marginally better than the profile. Q_d_b
+    0.61-0.89. Test runs (Q_d_a): 0.61 (Ra 8.7e6), 0.79 (Ra 1.5e8). At Ra 5e7 and 1e8 the
+    validation-block error exceeds the training-block error (0.88 vs 0.75, 0.95 vs 0.71).
+  - Q_d response to b: every interior coefficient has |mean| <= 0.003 with a standard deviation
+    over cells <= 0.002, and every wall-row mean is within +-0.003 (exact operator in these units:
+    1 and -4 in the interior). The models did not learn the Laplacian stencil. The coefficients
+    are printed with 3 decimals, too coarse to resolve their structure.
+  - Q_c: C2 and C4 validation relative RMS error 1.3e-2 and 1.1e-2 (Ra 1e6) rising to 8.9e-2 and
+    6.9e-2 (Ra 1e8); test Ra 1.5e8: 0.11 and 0.084. C1 and C3: 0.49-0.88. 2 x 2 effects on
+    log10 relative MSE over the training runs (+- standard error from the 3 seeds):
+    A (q -> q - q_s) -2.68 +- 0.03, B (drop z) -0.08 +- 0.03, AB -0.16 +- 0.03; |A| falls
+    monotonically with Ra (-3.7 at Ra 1e6, -1.9 at Ra 1e8). In every run, with q dropping z
+    raises the error (C3 worse than C1), with q - q_s it lowers it (C4 better than C2).
+    85-99% of the C2/C4 squared error is in condensing cells (1-5% of the cells).
+  - Correction of the previous entry: Q_c_C2 seed 42 and Q_c_C4 seed 42 reached the 150-epoch
+    limit with the learning rate at its 1e-7 floor and the training loss flat (relative change
+    < 0.1% over the last 10 epochs), not "while still improving". Q_c_C4 seed 44 early-stopped at
+    epoch 109 in the same state. The Q_d models early-stopped after 18-29 epochs with the training
+    loss still falling by a relative 6-30% over the last 10 epochs.
+- .gitignore: the evaluation script un-ignored.
+
 2026-11-10  v033 round-1 training: 6 configurations x 3 seeds
 ------------------------------------------------------------
 - Trained in Docker (GPU, TF32 off), one model after another: 11:54-12:52 by hand (Q_d_a), then
