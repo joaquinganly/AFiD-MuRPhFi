@@ -249,5 +249,8 @@ The user has a background in theoretical physics and computational fluid dynamic
 - Cite sources when presenting scientific or technical recommendations.
 - Clearly separate verified results, interpretations and hypotheses.
 - Be direct and critical. Do not agree with an idea simply to be agreeable.
+- Show the mathematics explicitly. Before giving any number, define it: the formula, every symbol, its units or normalisation, and the set it is computed over (which runs, frames, cells, seeds, checkpoint). Never describe a computed quantity in words only.
+- When referring to a figure, say which panel shows which quantity and how to read it: what each axis is (with its formula) and what every line, marker and reference line means.
+- Figures: label every axis with the quantity's formula and units; explain every line, marker and reference line in a legend; avoid axis scales that hide tick values (e.g. a symmetric-log axis over many decades).
 
 The objective is to support rigorous, reproducible scientific research.

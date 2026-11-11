@@ -3,12 +3,14 @@
 Unit checks: the patch order (patch . Laplacian / dz^2 = postprocess.laplacian); least squares
 recovers the exact interior and wall-row stencils and intercepts from random b; predict() with the
 exact stencils reproduces postprocess.laplacian; the s bins hold every value, sums per bin add up,
-and the shares within |s| < e are right on a hand-made example.
+and the cumulative shares F are right on a hand-made example; the variance contributions f_k of
+patch_covariance sum to 1 and std(L.x) equals the directly computed standard deviation.
 End to end, on small synthetic run folders in which Q_d = kappa Lap b and Q_c = (gamma/tau) max(s, 0)
 are built with postprocess.py's functions: every configuration trained for 1 epoch, evaluated with
 "v033 evaluate.py", then the diagnostics: fitted stencils exact, baseline and float32 floors at
-round-off, binned Q_c error equal to the evaluation's relative error for every seed and run,
-outputs written, training and evaluation outputs untouched, a second call refuses to overwrite.
+round-off, binned Q_c error equal to the evaluation's relative error for every seed and run, the
+linear-bin counts equal to a direct count, F and G end at 1, outputs written, training and
+evaluation outputs untouched, a second call refuses to overwrite.
 Usage (from simulations_v2/): python tests/test_v033_diagnostics.py diagnostics/v033_diagnostics.py
 """
 import os
@@ -58,6 +60,14 @@ for kind in dg.KINDS:
     assert math.isclose(c0 * dz ** 2, want, abs_tol=1e-8), (kind, c0 * dz ** 2)
 assert np.allclose(dg.predict(B, dg.exact_fit()), Y, rtol=1e-12, atol=1e-9)
 
+dg.COND_CELLS = 20000
+cv = dg.patch_covariance(B, 0.5, np.random.default_rng(0))
+assert math.isclose(cv["contrib"].sum(), 1.0, rel_tol=1e-9) and math.isclose(cv["share"].sum(), 1.0, rel_tol=1e-9)
+r0 = np.random.default_rng(0)
+tt, ii, jj = r0.integers(0, 5, 20000), r0.integers(1, T.NZ - 1, 20000), r0.integers(0, T.NY, 20000)
+Lx = dg.gather(B, tt, ii, jj, dg.DIS["interior"]) @ dg.LAPLACIAN / 0.5
+assert math.isclose(cv["lap_std"], float(np.std(Lx, ddof=1)), rel_tol=1e-9), (cv["lap_std"], np.std(Lx, ddof=1))
+
 E = dg.s_edges()
 s = np.concatenate([np.zeros(3), 10 ** rng.uniform(-9, 3, 500), -10 ** rng.uniform(-9, 3, 500)])
 idx = dg.s_bin(s, E)
@@ -73,8 +83,8 @@ sse = np.zeros(len(E) - 1)
 sse[c], sse[c + 5], sse[c - 9] = 1.0, 1.0, 2.0
 pos = E[len(E) // 2:]
 assert math.isclose(dg.share_within(sse, pos[5], E), 0.5) and math.isclose(dg.share_within(sse, pos[4], E), 0.25)
-assert dg.s_half(sse, E) == pos[5]
-print("Unit checks passed (patch order, least-squares stencils, exact predictor, s bins and shares)")
+assert dg.s_half(sse, E) == pos[5] and math.isclose(dg.cum_within(sse, E)[-1], 1.0)
+print("Unit checks passed (patch order, least squares, exact predictor, variance contributions, s bins and shares)")
 
 
 # ---------- end to end on synthetic run folders ----------
@@ -85,6 +95,7 @@ T.TRAIN_FRAMES, T.VAL_FRAMES, T.STRIDE, T.GAP_MIN = (2, 11), (17, 26), 3, 5
 T.EPOCHS, T.SEEDS, T.BATCH_SIZE = 1, (1, 2), 2
 ev.BATCH, ev.STENCIL_FRAMES = 4, 2
 dg.FIT_CELLS, dg.FIT_WALL_CELLS, dg.COND_CELLS, dg.BATCH = 4000, 1000, 4000, 4
+dg.LIN_LO, dg.LIN_HI, dg.LIN_BINS = -0.5, 1.0, 30
 tmp = Path(tempfile.mkdtemp())
 T.RUNS_DIR, T.OUT_DIR = tmp / "runs", tmp / "v033"
 NT = 30
@@ -93,6 +104,7 @@ T.TRAIN_RUNS = list(train)
 T.TEST_RUNS = ["Ra_8.7e6_Pr_1"]
 T.EXCLUDED_RUNS = {"Ra_2e8_Pr_1": "synthetic"}
 xm = (np.arange(T.NZ) + 0.5) / T.NZ
+raw_s = {}
 
 
 def make_run(label, ra, set_name):
@@ -121,6 +133,7 @@ def make_run(label, ra, set_name):
     np.savez(d / f"{label}_fields_Q.npz", u=theta, v=theta, theta=theta, rel_q=q - qs, Q=theta)
     np.savez(d / f"{label}_q.npz", q=q)
     np.savez_compressed(d / "Q_d_c.npz", Q_d=Qd, Q_c=Qc)
+    raw_s[label] = (q - qs).astype(np.float32)
 
 
 for label, ra in train.items():
@@ -148,17 +161,24 @@ assert len(res["qd"]["errors"]) == 2 * len(train) + 1
 assert max(max(e["fit"], e["exact"]) for e in res["qd"]["errors"]) < 1e-5, res["qd"]["errors"]
 assert set(res["qd"]["cond"]) == set(train)
 for cv in res["qd"]["cond"].values():
-    assert cv["eig"].size == 9 and math.isclose(cv["share"].sum(), 1.0, rel_tol=1e-9)
+    assert cv["eig"].size == 9 and math.isclose(cv["contrib"].sum(), 1.0, rel_tol=1e-9)
 
-n_val = len(range(T.VAL_FRAMES[0], T.VAL_FRAMES[1] + 1, T.STRIDE))
-n_test = n_val + len(range(T.TRAIN_FRAMES[0], T.TRAIN_FRAMES[1] + 1, T.STRIDE))
+VA = list(range(T.VAL_FRAMES[0], T.VAL_FRAMES[1] + 1, T.STRIDE))
+TR = list(range(T.TRAIN_FRAMES[0], T.TRAIN_FRAMES[1] + 1, T.STRIDE))
 for name in dg.QC_NAMES:
     runs = res["qc"][name]["runs"]
     assert set(runs) == set(train) | {"Ra_8.7e6_Pr_1"}
     for label, r in runs.items():
-        assert r["counts"].sum() == (n_test if r["set"] == "test" else n_val) * T.NZ * T.NY
+        frames = TR + VA if r["set"] == "test" else VA
+        assert r["counts"].sum() == len(frames) * T.NZ * T.NY and r["n_frames"] == len(frames)
+        sv = raw_s[label][:, :, frames].astype(np.float64)
+        width = (dg.LIN_HI - dg.LIN_LO) / dg.LIN_BINS
+        li = np.floor((sv - dg.LIN_LO) / width)
+        assert r["lin_count"].sum() == np.sum((li >= 0) & (li < dg.LIN_BINS)), (label, r["lin_count"].sum())
         assert r["floor_rel"] < 1e-6, (name, label, r["floor_rel"])
         assert 0 < r["s_pos"].size < r["counts"].sum()
+        assert math.isclose(r["F"][-1], 1.0) and math.isclose(r["G"][-1], 1.0)
+        assert np.all(np.diff(r["F"]) >= -1e-12) and np.all(np.diff(r["G"]) >= 0)
         for seed, rel in r["rel"].items():
             rec = next(x for x in res_ev["records"] if x["config"] == name and x["seed"] == seed
                        and x["run"] == label and x["set"] == r["set"])
@@ -167,10 +187,13 @@ assert res["qc"][dg.QC_NAMES[0]]["runs"]["Ra_1e6_Pr_1"]["s_rel"] is not None
 assert res["qc"][dg.QC_NAMES[1]]["runs"]["Ra_1e6_Pr_1"]["s_rel"] is None
 
 out = T.OUT_DIR / dg.OUT_NAME
-for fname in ("summary.txt", "Qd_linear_baseline_stencil.png", "Qd_linear_baseline_errors.png",
-              "Qd_input_conditioning.png", "Qc_C2_error_vs_supersaturation.png",
-              "Qc_C4_error_vs_supersaturation.png", "Qc_relative_supersaturation.png"):
+for fname in ("summary.txt", "diagnostics_data.npz", "Qd_linear_baseline_stencil.png",
+              "Qd_linear_baseline_errors.png", "Qd_input_conditioning.png", "Qc_C2_learned_function.png",
+              "Qc_C4_learned_function.png", "Qc_C2_cumulative_error.png", "Qc_C4_cumulative_error.png",
+              "Qc_relative_supersaturation.png"):
     assert (out / fname).is_file(), fname
+with np.load(out / "diagnostics_data.npz") as d:
+    assert "Q_c_C4__Ra_1e6_Pr_1__lin_mean" in d.files and "cond__Ra_1e6_Pr_1__contrib" in d.files
 expect(SystemExit, dg.main)
 shutil.rmtree(tmp)
 print("End-to-end diagnostics test passed (exact stencils recovered, floors at round-off, binned errors = evaluation)")

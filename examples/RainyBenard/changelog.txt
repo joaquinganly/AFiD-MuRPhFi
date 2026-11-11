@@ -5,6 +5,42 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-11  v033 diagnostics re-plotted; linear raw-vs-whitened test; CLAUDE.md section 12
+-----------------------------------------------------------------------------------------
+- simulations_v2/diagnostics/v033_diagnostics.py: figures redesigned at the user's request (the
+  first ones were unreadable); output folder simulations_v2/v033/diagnostics_2/ (v033/diagnostics/
+  kept). Conditioning figure, 2 x 2: lambda_k / lambda_1; f_k = lambda_k (L^.v_k)^2 / L^T C L^, the
+  contribution of eigen-direction k to the variance of the Laplacian combination (plotted instead
+  of the share (L^.v_k)^2, which is not the quantity that matters for the loss); lambda_1 / L^T C L^
+  against Ra; std(L.x) = sqrt(L^T C L) against Ra. Q_c, per configuration, for Ra 1e6, 1e7, 1e8
+  (validation blocks) and 1.5e8 (test run): the learned function (mean +- std of the prediction per
+  linear bin of s in [-0.005, 0.01] against the exact (gamma/tau) max(s, 0), with the number of cells
+  per bin) and the cumulative shares F(x) (squared error in |s| < x) and G(x) (condensing cells with
+  s < x); s / q_s figure relabelled; new column s_eq; binned data saved (diagnostics_data.npz).
+  Computations otherwise unchanged (numbers identical to the first run). Run 12:45-12:54 (8.3 min),
+  log tmp/v033_diag/diagnostics_2.log (EXIT 0). tests/test_v033_diagnostics.py updated; passes
+  (tmp/v033_tests/test_v033_diagnostics_2.log).
+- New results: eigen-direction 4 carries 74-80% of Var(L^.x) in every run (lambda_4 / lambda_1 =
+  3.7e-8 at Ra 1e6 to 4.4e-7 at Ra 1e8), direction 6 3-15%, directions 1-2 7-17%, direction 9 < 0.4%
+  (although 78-80% of L^ lies along v_9). std(L.x) = 9.3e-4 (Ra 1e6) to 3.3e-3 (Ra 1e8), against
+  std ~ 1 for each x_m. s_eq (RMS error per bin equal to the target (gamma/tau) s): 7.5e-6 to 7.5e-5.
+- simulations_v2/diagnostics/v033_linear_conv_test.py (new) and tests/test_v033_linear_conv.py
+  (new; passes, tmp/v033_tests/test_v033_linear_conv.log): purely linear 3 x 3 models of Q_d / kappa
+  from b with the Q_d_b data, padding, normalisation and per-run relative-MSE loss; Adam lr 1e-3
+  constant, clipnorm 1, batch 2, 20 epochs, seed 42, float64 on the CPU. raw: the normalised b;
+  whitened: the patch whitened with the pooled training-block covariance, x~ = Lambda^(-1/2) V^T
+  (x - xbar) (fixed), then a trainable 1 x 1 readout. Run 12:55-13:09 (13.9 min), log
+  tmp/v033_linear/linear_conv_test.log (EXIT 0); outputs simulations_v2/v033/linear_conv_test/
+  (summary.txt, history.json, linear_conv_raw_vs_whitened.png). Results (validation relative MSE,
+  mean over runs): raw 0.926 -> 0.886 after 20 epochs (19,360 updates), stencil x dz^2 within
+  +-0.005 (exact 1 and -4), largest weight on x 1.7 (exact kernel 405 L, largest weight 1621);
+  whitened 2.6e-8 after 4 epochs (floor of the exact operator on the float32 b: 1.9e-8), stencil
+  centre -3.99996, neighbours 0.99998, corners 1e-5; afterwards the loss fluctuates up to 2e-6 at
+  the constant learning rate. The script sets the Keras default float type to float64 (otherwise
+  Keras casts float64 inputs to float32; found by the test).
+- CLAUDE.md section 12: show the mathematics explicitly; say which panel shows which quantity and
+  how to read it; readable figures (approved by the user 2026-11-11).
+
 2026-11-11  v033 diagnostics; masked convergence test; CLAUDE.md section 7
 ---------------------------------------------------------------------
 - simulations_v2/diagnostics/v033_diagnostics.py (new; agreed with the user 2026-11-11): (1) Q_d

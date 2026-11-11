@@ -1,6 +1,13 @@
 """v033 diagnostics: a strong linear baseline for Q_d, the conditioning of its input, and the Q_c
 error against supersaturation (agreed with the user, 2026-11-11; changelog.txt).
 
+Notation. For an interior cell (i, j) of one frame, the patch vector of the 9 normalised b values
+in the order [di + 1, dj + 1] (rows z-1, z, z+1; columns y-1, y, y+1):
+    x = (b_{i-1,j-1}, b_{i-1,j}, ..., b_{i+1,j+1}) / sigma_b,   sigma_b: the Q_d_b input normalisation.
+L = (0, 1, 0, 1, -4, 1, 0, 1, 0), so that Lap b = (sigma_b / dz^2) L.x in the interior; L^ = L / sqrt(20).
+C = Cov(x) = sum_k lambda_k v_k v_k^T (lambda_1 >= ... >= lambda_9, v_k orthonormal).
+s = q - q_s; the exact target Q_c = (gamma/tau) max(s, 0). Errors e_c = Q^_c - Q_c per cell c = (frame, z, y).
+
  1. Q_d baseline. Linear least squares (numpy.linalg.lstsq: SVD-based LAPACK solver, float64) of
     Q_d / kappa on the 3 x 3 patch of b: the 9 values + intercept in the interior rows; the 6
     values of the wall row and its neighbour + intercept in each wall row. Fitted once on a random
@@ -10,22 +17,23 @@ error against supersaturation (agreed with the user, 2026-11-11; changelog.txt).
     v033 evaluation (evaluation/per_run_errors.csv) and the best z-profile. It is the model class
     of the CNN's linear part, solved directly instead of by gradient descent (strong-baseline
     practice: McGreivy & Hakim 2024). Also scored: the exact operator of postprocess.py applied
-    to the float32 b ([0 1 0; 1 -4 1; 0 1 0] / dz^2 in the interior; in the wall rows centre
-    -5 / dz^2 and intercept 2 b_wall / dz^2 from the ghost value 2 b_wall - b), the floor that
-    float32 inputs set.
- 2. Conditioning of the Q_d input. Covariance of the 9 normalised b values of an interior 3 x 3
-    patch (normalisation of the trained Q_d_b models), per training run (training block, random
-    sample of cells): eigenvalues, condition number, and the share (L . v_i)^2 of the exact
-    Laplacian direction L = [0 1 0 1 -4 1 0 1 0] / sqrt(20) in each eigenvector v_i. For a linear
-    unit trained by gradient descent, learning time is governed by the eigenvalues of this matrix
-    (LeCun, Kanter & Solla 1991; LeCun, Bottou, Orr & Mueller 1998).
- 3. Q_c. (a) The floor set by float32 inputs: (gamma / tau) max(s, 0), s = q - q_s as the CNN
-    receives it, against the stored Q_c (both as in postprocess.py). (b) For Q_c_C2 and Q_c_C4:
-    histogram of s and the prediction error per bin of s, on the validation blocks of the training
-    runs and all frames of the test runs, every seed. (c) s / q_s in condensing cells: the
-    relative accuracy that a model given q instead of q - q_s (Q_c_C1) must reach in
-    q_s = exp(alpha (b - beta z)).
-Output: simulations_v2/v033/diagnostics/ (refuses to overwrite): summary.txt, Qd_*.png, Qc_*.png.
+    to the float32 b, the floor that float32 inputs set.
+ 2. Conditioning of the Q_d input, per training run (training block, random interior cells):
+    lambda_k / lambda_1; the contribution of each eigen-direction to the variance of the
+    Laplacian combination, f_k = lambda_k (L^.v_k)^2 / L^T C L^ (sum_k f_k = 1); lambda_1 / L^T C L^;
+    std(L.x) = sqrt(L^T C L) (each x_m has std ~ 1). For a linear unit trained by gradient
+    descent, learning time is governed by the eigenvalues of C (LeCun, Kanter & Solla 1991;
+    LeCun, Bottou, Orr & Mueller 1998).
+ 3. Q_c, for Q_c_C2 and Q_c_C4 on the validation blocks of the training runs and all evaluated
+    frames of the test runs, every seed. (a) Floor: (gamma/tau) max(s, 0) from the float32 s
+    against the stored Q_c. (b) The learned function: per linear bin B_k of s, the mean and
+    standard deviation of Q^_c over the cells and seeds, against the exact (gamma/tau) max(s, 0),
+    and the number of cells N_k. (c) Where the error is: F(x) = sum_{|s_c| < x} e_c^2 / sum_c e_c^2,
+    and the fraction of condensing cells G(x) = #{c: 0 < s_c < x} / #{c: s_c > 0}. (d) s / q_s in
+    condensing cells: the relative accuracy that a model given q instead of s (Q_c_C1) must reach
+    in q_s = exp(alpha (b - beta z)). Figures show REP_RUNS; summary.txt lists every run.
+Output: simulations_v2/v033/diagnostics_2/ (refuses to overwrite; the first version's figures are
+        in v033/diagnostics/): summary.txt, diagnostics_data.npz, Qd_*.png, Qc_*.png.
 Usage : python diagnostics/v033_diagnostics.py   (from simulations_v2/, inside the Docker container)
 """
 import csv
@@ -47,7 +55,7 @@ _spec.loader.exec_module(EV)      # imports the training script as EV.T (loader,
 T = EV.T
 pp = T.pp
 
-OUT_NAME = "diagnostics"
+OUT_NAME = "diagnostics_2"
 SEED = 0
 FIT_CELLS = 250_000              # interior cells per training run for the fit (drawn with replacement)
 FIT_WALL_CELLS = 50_000          # cells per wall row per training run
@@ -55,7 +63,9 @@ COND_CELLS = 1_000_000           # interior cells per training run for the patch
 CHUNK = 32                       # frames per chunk when scoring the baseline
 BATCH = 8
 QC_NAMES = ("Q_c_C2", "Q_c_C4")
-S_MIN, S_MAX, PER_DECADE = 1e-7, 1e2, 4     # bins of s: |s| from S_MIN to S_MAX, central bin |s| < S_MIN
+REP_RUNS = ("Ra_1e6_Pr_1", "Ra_1e7_Pr_1", "Ra_1e8_Pr_1", "Ra_1.5e8_Pr_1")   # shown in the Q_c figures
+S_MIN, S_MAX, PER_DECADE = 1e-7, 1e2, 4     # log bins of s: |s| from S_MIN to S_MAX, central bin |s| < S_MIN
+LIN_LO, LIN_HI, LIN_BINS = -0.005, 0.01, 150   # linear bins of s for the learned-function figure
 SHARE_EDGES = (1e-5, 1e-4, 1e-3, 1e-2)
 KINDS = ("interior", "bottom", "top")
 DIS = {"interior": (-1, 0, 1), "bottom": (0, 1), "top": (-1, 0)}   # patch rows relative to the cell
@@ -133,7 +143,8 @@ def predict(b, fit):
 
 
 def patch_covariance(b, sb, rng):
-    """Covariance of the 9 normalised b values of random interior patches; eigen-decomposition."""
+    """Covariance C of the 9 normalised b values of random interior patches; its eigen-decomposition,
+    the share (L^.v_k)^2 and variance contribution f_k of each eigen-direction, std(L.x)."""
     n = b.shape[0]
     t = rng.integers(0, n, COND_CELLS)
     i = rng.integers(1, T.NZ - 1, COND_CELLS)
@@ -143,8 +154,11 @@ def patch_covariance(b, sb, rng):
     lam, V = np.linalg.eigh(C)
     lam, V = lam[::-1], V[:, ::-1]                   # descending
     L = LAPLACIAN / np.linalg.norm(LAPLACIAN)
-    return {"eig": lam, "share": (V.T @ L) ** 2, "cond": float(lam[0] / lam[-1]),
-            "lap_var": float(L @ C @ L), "trace": float(np.trace(C))}
+    share = (V.T @ L) ** 2
+    lap_var = float(L @ C @ L)                       # = sum_k lambda_k share_k
+    return {"eig": lam, "share": share, "contrib": lam * share / lap_var, "cond": float(lam[0] / lam[-1]),
+            "lap_var": lap_var, "lap_std": math.sqrt(float(LAPLACIAN @ C @ LAPLACIAN)),
+            "trace": float(np.trace(C))}
 
 
 def qd_diagnostics():
@@ -219,23 +233,36 @@ def s_centres(edges):
     return c
 
 
+def cum_within(sse, edges):
+    """F at every positive edge e_m: share of sum(sse) in the bins inside (-e_m, e_m)."""
+    half = len(edges) // 2
+    c, tot = half - 1, float(sse.sum())
+    return np.array([sse[c - m: c + m + 1].sum() / tot if tot > 0 else np.nan for m in range(half)])
+
+
 def share_within(sse, thr, edges):
     """Share of sum(sse) in the bins inside (-thr, thr); thr is (the nearest) bin edge."""
     half = len(edges) // 2
     m = int(np.argmin(np.abs(edges[half:] - thr)))
-    c = half - 1
-    tot = float(sse.sum())
-    return float(sse[c - m: c + m + 1].sum()) / tot if tot > 0 else float("nan")
+    return float(cum_within(sse, edges)[m])
 
 
 def s_half(sse, edges):
     """Smallest bin edge e with at least half of sum(sse) in |s| < e."""
     half = len(edges) // 2
-    pos, c, tot = edges[half:], half - 1, float(sse.sum())
-    for m in range(len(pos)):
-        if sse[c - m: c + m + 1].sum() >= 0.5 * tot:
-            return float(pos[m])
-    return float("nan")
+    F = cum_within(sse, edges)
+    i = np.flatnonzero(F >= 0.5)
+    return float(edges[half:][i[0]]) if i.size else float("nan")
+
+
+def s_equal(r, edges):
+    """Smallest positive bin centre c_k at which the RMS error per bin, sqrt(sse_k / N_k), is not
+    larger than the target there, (gamma/tau) c_k."""
+    cen = s_centres(edges)
+    ok = (cen > 0) & (r["counts"] > 0)
+    rms = np.sqrt(r["sse_mean"][ok] / r["counts"][ok])
+    i = np.flatnonzero(rms <= r["g"] * cen[ok])
+    return float(cen[ok][i[0]]) if i.size else float("nan")
 
 
 def qc_diagnostics(name, with_qs):
@@ -247,6 +274,8 @@ def qc_diagnostics(name, with_qs):
     i_s, i_b = chans.index("q_minus_qs"), chans.index("b")
     edges = s_edges()
     nb = len(edges) - 1
+    width = (LIN_HI - LIN_LO) / LIN_BINS
+    ns = len(setup["seeds"])
     out = {"name": name, "seeds": setup["seeds"], "s_norm": setup["input_norm"]["q_minus_qs"],
            "edges": edges, "runs": {}}
     for label in T.TRAIN_RUNS + T.TEST_RUNS:
@@ -257,9 +286,10 @@ def qc_diagnostics(name, with_qs):
         raw = {p: run["fields"][run["parts"][p]][..., i_s].copy() for p in parts}
         braw = {p: run["fields"][run["parts"][p]][..., i_b].astype(np.float64) for p in parts} if with_qs else None
         T.apply_input_norm(run, setup["input_norm"])
-        r = {"ra": run["ra"], "set": st, "g": g, "counts": np.zeros(nb),
-             "sse": {s: np.zeros(nb) for s in setup["seeds"]}, "sy2": 0.0, "floor_sse": 0.0,
-             "s_pos": [], "s_rel": []}
+        r = {"ra": run["ra"], "set": st, "g": g, "n_frames": sum(len(raw[p]) for p in parts),
+             "counts": np.zeros(nb), "sse": {s: np.zeros(nb) for s in setup["seeds"]}, "sy2": 0.0,
+             "floor_sse": 0.0, "s_pos": [], "s_rel": [],
+             "lin_count": np.zeros(LIN_BINS), "lin_sum": np.zeros(LIN_BINS), "lin_sumsq": np.zeros(LIN_BINS)}
         z = run["xm"][None, :, None]
         for part in parts:
             gen = T.RunSnapshots([run], part, setup["target_norm"], BATCH, shuffle=False, seed=0)
@@ -270,22 +300,36 @@ def qc_diagnostics(name, with_qs):
                 y = run["y"][t0 + sl.start: t0 + sl.stop].astype(np.float64)
                 s = raw[part][sl]
                 idx = s_bin(s, edges).ravel()
+                li = np.floor((s.astype(np.float64).ravel() - LIN_LO) / width).astype(np.int64)
+                inr = (li >= 0) & (li < LIN_BINS)
+                li = li[inr]
                 r["counts"] += np.bincount(idx, minlength=nb)
+                r["lin_count"] += np.bincount(li, minlength=LIN_BINS)
                 r["sy2"] += float(np.sum(y ** 2))
                 r["floor_sse"] += float(np.sum((g * np.maximum(s.astype(np.float64), 0.0) - y) ** 2))
                 for seed, model in setup["models"].items():
                     p = np.asarray(model.predict_on_batch(X))[..., 0].astype(np.float64) * std + mean
                     r["sse"][seed] += np.bincount(idx, weights=((p - y) ** 2).ravel(), minlength=nb)
+                    pl = p.ravel()[inr]
+                    r["lin_sum"] += np.bincount(li, weights=pl, minlength=LIN_BINS)
+                    r["lin_sumsq"] += np.bincount(li, weights=pl ** 2, minlength=LIN_BINS)
                 c = s > 0
                 r["s_pos"].append(s[c].astype(np.float64))
                 if with_qs:
                     qs = np.exp(T.ALPHA * (braw[part][sl] - T.BETA * z))
                     r["s_rel"].append(s[c].astype(np.float64) / qs[c])
-        r["s_pos"] = np.concatenate(r["s_pos"])
+        r["s_pos"] = np.sort(np.concatenate(r["s_pos"]))
         r["s_rel"] = np.concatenate(r["s_rel"]) if with_qs else None
         r["floor_rel"] = math.sqrt(r["floor_sse"] / r["sy2"])
         r["rel"] = {s: math.sqrt(float(v.sum()) / r["sy2"]) for s, v in r["sse"].items()}
         r["sse_mean"] = np.mean([r["sse"][s] for s in setup["seeds"]], axis=0)
+        n = np.maximum(r["lin_count"] * ns, 1.0)
+        r["lin_mean"] = r["lin_sum"] / n
+        r["lin_std"] = np.sqrt(np.maximum(r["lin_sumsq"] / n - r["lin_mean"] ** 2, 0.0))
+        pos = edges[len(edges) // 2:]
+        r["F"] = cum_within(r["sse_mean"], edges)
+        r["G"] = np.searchsorted(r["s_pos"], pos, side="left") / max(r["s_pos"].size, 1)
+        r["s_eq"] = s_equal(r, edges)
         out["runs"][label] = r
         print(f"  {name:<7} {label:<15} done", flush=True)
         del run, raw, braw
@@ -293,7 +337,7 @@ def qc_diagnostics(name, with_qs):
 
 
 # ============================================================
-# 3. Summary and figures (Q_d and Q_c separate)
+# 3. Summary, data file and figures (Q_d and Q_c separate)
 # ============================================================
 
 def read_rows(path):
@@ -313,7 +357,7 @@ def eval_ref(rows, config, run, st):
 
 
 def pct(x, q):
-    return float(np.percentile(x, q)) if x.size else float("nan")
+    return float(np.percentile(x, q)) if x is not None and x.size else float("nan")
 
 
 def summary_text(qd, qc, rows):
@@ -340,38 +384,43 @@ def summary_text(qd, qc, rows):
                  f"{eval_rel(rows, 'Q_d_a', e['run'], e['set']):>7.3f} "
                  f"{eval_rel(rows, 'Q_d_b', e['run'], e['set']):>7.3f} "
                  f"{eval_ref(rows, 'Q_d_a', e['run'], e['set']):>7.3f}")
-    L += ["", f"2. Conditioning of the Q_d input: covariance of the 9 normalised b values (b / {qd['sb']:.4f}) "
-          f"of an interior 3 x 3 patch,",
-          f"   {COND_CELLS} random cells per training run (training block). Eigenvalues lambda_1 >= ... >= lambda_9;",
-          "   share (L.v_i)^2 of the unit Laplacian direction L in eigenvectors 9, 8, 7 (the three smallest);",
-          "   variance of the Laplacian combination L.C.L relative to lambda_1."]
+    L += ["", f"2. Conditioning of the Q_d input: C = Cov(x), x = the 9 values b / {qd['sb']:.4f} of an interior "
+          f"3 x 3 patch;",
+          f"   {COND_CELLS} random cells per training run (training block). C = sum_k lambda_k v_k v_k^T, descending;",
+          "   L = (0,1,0,1,-4,1,0,1,0), L^ = L / sqrt(20). share_k = (L^.v_k)^2; f_k = lambda_k share_k / L^T C L^",
+          "   (contribution of direction k to Var(L^.x); sum_k f_k = 1); std(L.x) = sqrt(L^T C L) (each x_m: std ~ 1)."]
     for label, c in qd["cond"].items():
-        L.append(f"   {label:<15} cond {c['cond']:.2e}  L.C.L/lambda_1 {c['lap_var'] / c['eig'][0]:.2e}  "
-                 f"shares {c['share'][8]:.3f} {c['share'][7]:.3f} {c['share'][6]:.3f}")
-        L.append("      eigenvalues " + " ".join(f"{v:.2e}" for v in c["eig"]))
-    L += ["", "3. Q_c (validation blocks of the training runs; test runs: all their frames). s = q - q_s.",
+        L.append(f"   {label:<15} lambda_1 {c['eig'][0]:.3f}  lambda_1/lambda_9 {c['cond']:.2e}  "
+                 f"lambda_1/L^T C L^ {c['eig'][0] / c['lap_var']:.2e}  std(L.x) {c['lap_std']:.2e}  "
+                 f"trace {c['trace']:.3f}")
+        L.append("      lambda_k / lambda_1 " + " ".join(f"{v / c['eig'][0]:.1e}" for v in c["eig"]))
+        L.append("      share_k             " + " ".join(f"{v:.1e}" for v in c["share"]))
+        L.append("      f_k                 " + " ".join(f"{v:.1e}" for v in c["contrib"]))
+    L += ["", "3. Q_c (validation blocks of the training runs; test runs: all their evaluated frames). s = q - q_s.",
           "   floor: (gamma/tau) max(s, 0) from the float32 s against the stored Q_c; rel: CNN relative RMS error",
           "   (mean of the seeds; 'check' = largest relative difference from the evaluation's per_run_errors.csv);",
-          "   share |s| < e: share of the CNN's squared error (mean of the seeds) in cells with |s| < e;",
-          "   s_50: smallest bin edge e with half of the squared error in |s| < e."]
+          "   share |s| < e: F(e) = sum_{|s_c| < e} e_c^2 / sum_c e_c^2 (e_c^2 averaged over the seeds);",
+          "   s_50: smallest bin edge e with F(e) >= 0.5; s_eq: smallest s > 0 (bin centre) at which the RMS error",
+          "   per bin, sqrt(sum_{c in B_k} e_c^2 / N_k), is not larger than the target (gamma/tau) s."]
     for name, res in qc.items():
         mu, sd = res["s_norm"]
         L += ["", f"   {name}: network input (s - {mu:.4f}) / {sd:.4f}; the kink s = 0 is at {-mu / sd:+.4f} "
                   f"in normalised units; 1e-3 in s is {1e-3 / sd:.2e} there"]
-        L.append(f"   {'run':<15} {'set':<5} {'frac s>0':>8} {'med s>0':>9} {'p90 s>0':>9} {'floor':>9} "
-                 f"{'rel':>9} {'check':>8} " + " ".join(f"{'<' + format(e, '.0e'):>7}" for e in SHARE_EDGES)
-                 + f" {'s_50':>8}")
+        L.append(f"   {'run':<15} {'set':<5} {'frames':>6} {'frac s>0':>8} {'med s>0':>9} {'p90 s>0':>9} "
+                 f"{'floor':>9} {'rel':>9} {'check':>8} "
+                 + " ".join(f"{'<' + format(e, '.0e'):>7}" for e in SHARE_EDGES) + f" {'s_50':>8} {'s_eq':>8}")
         for label, r in res["runs"].items():
             check = max(abs(v - eval_rel(rows, name, label, r["set"], s)) / eval_rel(rows, name, label, r["set"], s)
                         for s, v in r["rel"].items())
-            L.append(f"   {label:<15} {r['set']:<5} {r['s_pos'].size / r['counts'].sum():>8.4f} "
+            L.append(f"   {label:<15} {r['set']:<5} {r['n_frames']:>6} {r['s_pos'].size / r['counts'].sum():>8.4f} "
                      f"{pct(r['s_pos'], 50):>9.2e} {pct(r['s_pos'], 90):>9.2e} {r['floor_rel']:>9.2e} "
                      f"{np.mean(list(r['rel'].values())):>9.3e} {check:>8.1e} "
                      + " ".join(f"{share_within(r['sse_mean'], e, res['edges']):>7.3f}" for e in SHARE_EDGES)
-                     + f" {s_half(r['sse_mean'], res['edges']):>8.1e}")
+                     + f" {s_half(r['sse_mean'], res['edges']):>8.1e} {r['s_eq']:>8.1e}")
     rel = next((res for res in qc.values() if next(iter(res["runs"].values()))["s_rel"] is not None), None)
     if rel is not None:
-        L += ["", "4. s / q_s in condensing cells (s > 0): the relative accuracy needed in q_s by a model given q",
+        L += ["", "4. s / q_s in condensing cells (s > 0): a model given q (Q_c_C1) builds q_s itself; a relative error",
+              "   eps = dq_s / q_s gives |Q^_c - Q_c| / Q_c = eps / (s / q_s)",
               f"   {'run':<15} {'set':<5} {'p10':>9} {'median':>9} {'p90':>9}"]
         for label, r in rel["runs"].items():
             L.append(f"   {label:<15} {r['set']:<5} {pct(r['s_rel'], 10):>9.2e} {pct(r['s_rel'], 50):>9.2e} "
@@ -379,11 +428,34 @@ def summary_text(qd, qc, rows):
     return "\n".join(L) + "\n"
 
 
+def save_data(qd, qc, path):
+    d = {}
+    for label, c in qd["cond"].items():
+        for k in ("eig", "share", "contrib"):
+            d[f"cond__{label}__{k}"] = c[k]
+    for name, res in qc.items():
+        d[f"{name}__edges"] = res["edges"]
+        for label, r in res["runs"].items():
+            for k in ("counts", "sse_mean", "lin_count", "lin_mean", "lin_std", "F", "G"):
+                d[f"{name}__{label}__{k}"] = r[k]
+    d["lin_edges"] = np.linspace(LIN_LO, LIN_HI, LIN_BINS + 1)
+    np.savez(path, **d)
+
+
 def ra_colour(ra):
     return plt.cm.viridis(min(max((math.log10(ra) - 6.0) / 2.2, 0.0), 1.0))
 
 
+def ra_text(label):
+    return label.replace("Ra_", "Ra ").replace("_Pr_1", "")
+
+
 SET_MARK = {"train": "o", "val": "s", "test": "*"}
+
+
+def rep_labels(runs):
+    labels = [l for l in REP_RUNS if l in runs]
+    return labels or list(runs)[:4]
 
 
 def plot_qd_stencil(qd, path):
@@ -433,7 +505,7 @@ def plot_qd_errors(qd, rows, path):
     ax.axhline(1.0, color="0.5", linestyle=":", linewidth=1)
     ax.set_yscale("log")
     ax.set_xlabel(r"$\log_{10}$ Ra")
-    ax.set_ylabel("relative RMS error")
+    ax.set_ylabel(r"relative RMS error $\sqrt{\sum (p-y)^2 / \sum y^2}$")
     ax.grid(True, which="both", linestyle=":", alpha=0.5)
     ax.legend(fontsize=7, ncol=2)
     ax.set_title(f"{T.VERSION}: Q_d, linear least-squares baseline vs CNNs (dotted: error of predicting zero)",
@@ -444,88 +516,136 @@ def plot_qd_errors(qd, rows, path):
 
 
 def plot_qd_conditioning(qd, path):
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4.6))
-    idx = np.arange(1, 10)
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9.5))
+    k = np.arange(1, 10)
     for label, c in qd["cond"].items():
         col = ra_colour(c["ra"])
-        axes[0].semilogy(idx, np.abs(c["eig"]) / c["eig"][0], "o-", color=col, label=label)
-        axes[1].semilogy(idx, np.maximum(c["share"], 1e-12), "o-", color=col, label=label)
-    axes[0].set_title("eigenvalues of the patch covariance / largest", fontsize=10)
-    axes[1].set_title("share of the Laplacian direction in each eigenvector", fontsize=10)
-    for ax in axes[:2]:
-        ax.set_xlabel("eigenvalue index (descending)")
+        axes[0, 0].semilogy(k, np.abs(c["eig"]) / c["eig"][0], "o-", color=col, label=ra_text(label))
+        axes[0, 1].plot(k, c["contrib"], "o-", color=col, label=ra_text(label))
+    cs = list(qd["cond"].values())
+    ra = np.log10([c["ra"] for c in cs])
+    axes[1, 0].semilogy(ra, [c["eig"][0] / c["lap_var"] for c in cs], "s-", color="tab:purple")
+    axes[1, 1].semilogy(ra, [c["lap_std"] for c in cs], "o-", color="tab:green", label=r"std$(L\cdot x)$")
+    axes[1, 1].axhline(1.0, color="0.4", linestyle=":", label=r"std of each input $x_m$ ($\approx 1$)")
+    axes[0, 0].set_title(r"(a) eigenvalues of $C=\mathrm{Cov}(x)$: $\lambda_k/\lambda_1$", fontsize=10)
+    axes[0, 0].set_ylabel(r"$\lambda_k / \lambda_1$")
+    axes[0, 1].set_title(r"(b) $f_k=\lambda_k(\hat L\cdot v_k)^2/\hat L^{T}C\hat L$: share of "
+                         r"Var$(\hat L\cdot x)$ from direction $v_k$", fontsize=10)
+    axes[0, 1].set_ylabel(r"$f_k$  ($\sum_k f_k = 1$)")
+    axes[0, 1].set_ylim(-0.03, 1.03)
+    for ax in axes[0]:
+        ax.set_xlabel(r"eigen-direction $k$ ($\lambda_1 \geq \dots \geq \lambda_9$)")
+        ax.set_xticks(k)
         ax.grid(True, which="both", linestyle=":", alpha=0.5)
-        ax.legend(fontsize=6)
-    ra = np.log10([c["ra"] for c in qd["cond"].values()])
-    axes[2].semilogy(ra, [c["cond"] for c in qd["cond"].values()], "ko-", label="condition number lambda_1 / lambda_9")
-    axes[2].semilogy(ra, [c["eig"][0] / c["lap_var"] for c in qd["cond"].values()], "s--", color="tab:purple",
-                     label="lambda_1 / variance of the Laplacian combination")
-    axes[2].set_xlabel(r"$\log_{10}$ Ra")
-    axes[2].grid(True, which="both", linestyle=":", alpha=0.5)
-    axes[2].legend(fontsize=7)
-    axes[2].set_title("per training run (training block)", fontsize=10)
-    fig.suptitle(f"{T.VERSION}: conditioning of the Q_d input (9 normalised b values of an interior 3x3 patch)",
-                 fontsize=11)
+        ax.legend(fontsize=7)
+    axes[1, 0].set_title(r"(c) $\lambda_1/\hat L^{T}C\hat L$: how much weaker the Laplacian direction "
+                         "is than the dominant one", fontsize=10)
+    axes[1, 0].set_ylabel(r"$\lambda_1 / \hat L^{T} C \hat L$")
+    axes[1, 1].set_title(r"(d) std$(L\cdot x)=\sqrt{L^{T}CL}$, $L\cdot x = (dz^2/\sigma_b)\,\nabla^2 b$", fontsize=10)
+    axes[1, 1].legend(fontsize=8)
+    for ax in axes[1]:
+        ax.set_xlabel(r"$\log_{10}$ Ra (training runs, training block)")
+        ax.grid(True, which="both", linestyle=":", alpha=0.5)
+    fig.suptitle(f"{T.VERSION}: conditioning of the Q_d input. x = the 9 values b / {qd['sb']:.4f} of an interior "
+                 r"3x3 patch; $L=(0,1,0,1,-4,1,0,1,0)$, $\hat L = L/\sqrt{20}$", fontsize=11)
     fig.tight_layout()
     fig.savefig(path, dpi=200)
     plt.close(fig)
 
 
-def plot_qc_bins(res, path):
-    edges = res["edges"]
-    cen = s_centres(edges)
-    fig, axes = plt.subplots(1, 3, figsize=(17, 4.8))
-    g = None
-    for label, r in res["runs"].items():
-        col, ls = ra_colour(r["ra"]), ("--" if r["set"] == "test" else "-")
-        n = r["counts"]
-        ok = n > 0
-        lab = f"{label} ({'test' if r['set'] == 'test' else 'validation'})"
-        axes[0].plot(cen[ok], n[ok] / n.sum(), ls, color=col, label=lab)
-        axes[1].plot(cen[ok], np.sqrt(r["sse_mean"][ok] / n[ok]), ls, color=col, label=lab)
-        axes[2].plot(cen[ok], r["sse_mean"][ok] / r["sse_mean"].sum(), ls, color=col, label=lab)
-        g = r["g"]
-    pos = cen > 0
-    axes[1].plot(cen[pos], g * cen[pos], "k:", linewidth=1.5, label="target (gamma/tau) s")
-    titles = ("fraction of cells per bin of s", "RMS error of the prediction per bin (mean of seeds)",
-              "share of the run's squared error per bin")
-    for ax, t in zip(axes, titles):
-        ax.set_xscale("symlog", linthresh=S_MIN, linscale=0.5)
-        ax.set_yscale("log")
-        ax.axvline(0.0, color="k", linewidth=0.8)
-        ax.set_xlabel("s = q - q_s")
-        ax.set_title(t, fontsize=10)
-        ax.grid(True, which="both", linestyle=":", alpha=0.4)
-    axes[1].legend(fontsize=6)
+def plot_qc_function(res, path):
+    labels = rep_labels(res["runs"])
+    e = np.linspace(LIN_LO, LIN_HI, LIN_BINS + 1)
+    x = 0.5 * (e[1:] + e[:-1])
+    xs = np.linspace(LIN_LO, LIN_HI, 601)
+    fig = plt.figure(figsize=(4.4 * len(labels), 7.0))
+    gs = fig.add_gridspec(2, len(labels), height_ratios=(3, 1))
+    for j, label in enumerate(labels):
+        r = res["runs"][label]
+        ax = fig.add_subplot(gs[0, j])
+        axn = fig.add_subplot(gs[1, j], sharex=ax)
+        ok = r["lin_count"] > 0
+        m, sd = r["lin_mean"], r["lin_std"]
+        ax.fill_between(x[ok], (m - sd)[ok], (m + sd)[ok], color="tab:blue", alpha=0.25,
+                        label=r"prediction: mean $\pm$ 1 std in the bin")
+        ax.plot(x[ok], m[ok], color="tab:blue", linewidth=1.5, label=r"prediction: mean $\hat Q_c$ in the bin")
+        ax.plot(xs, r["g"] * np.maximum(xs, 0.0), "k-", linewidth=1.2,
+                label=r"exact $Q_c=(\gamma/\tau)\max(s,0)$")
+        ax.axvline(0.0, color="0.4", linestyle=":", label=r"$s=0$ ($q=q_s$)")
+        ax.set_title(f"{ra_text(label)} ({'test run' if r['set'] == 'test' else 'validation block'}, "
+                     f"{r['n_frames']} frames)", fontsize=10)
+        ax.set_ylabel(r"$Q_c$")
+        ax.grid(True, linestyle=":", alpha=0.5)
+        axn.semilogy(x[ok], r["lin_count"][ok], color="0.3", drawstyle="steps-mid")
+        axn.axvline(0.0, color="0.4", linestyle=":")
+        axn.set_xlabel(r"$s = q - q_s$  (bin width %.0e)" % ((LIN_HI - LIN_LO) / LIN_BINS))
+        axn.set_ylabel(r"cells $N_k$")
+        axn.grid(True, which="both", linestyle=":", alpha=0.5)
+        if j == 0:
+            ax.legend(fontsize=7, loc="upper left")
     mu, sd = res["s_norm"]
-    fig.suptitle(f"{T.VERSION}: {res['name']} ({', '.join(T.CONFIGS[res['name']]['inputs'])} -> Q_c), error against "
-                 f"supersaturation; network input (s - {mu:.3f}) / {sd:.3f}", fontsize=11)
+    fig.suptitle(f"{T.VERSION} {res['name']} (inputs {', '.join(T.CONFIGS[res['name']]['inputs'])}): the learned "
+                 f"function. Top: Q^_c of the cells c with s_c in bin B_k, averaged over the cells and the "
+                 f"{len(res['seeds'])} seeds; bottom: number of cells N_k per bin.\nNetwork input (s - {mu:.3f}) / "
+                 f"{sd:.3f}; cells with s outside [{LIN_LO:g}, {LIN_HI:g}] not shown", fontsize=10)
+    fig.tight_layout()
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+
+
+def plot_qc_cumulative(res, path):
+    labels = rep_labels(res["runs"])
+    pos = res["edges"][len(res["edges"]) // 2:]
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    for label in labels:
+        r = res["runs"][label]
+        col, ls = ra_colour(r["ra"]), ("--" if r["set"] == "test" else "-")
+        lab = f"{ra_text(label)} ({'test' if r['set'] == 'test' else 'validation'})"
+        axes[0].semilogx(pos, r["F"], ls, color=col, label=lab)
+        axes[1].semilogx(pos, r["G"], ls, color=col, label=lab)
+    axes[0].set_ylabel(r"$F(x)=\sum_{|s_c|<x} e_c^2 \,/\, \sum_c e_c^2$")
+    axes[0].set_title("(a) share of the squared error in cells with |s| < x (both signs of s)", fontsize=10)
+    axes[1].set_ylabel(r"$G(x)=\#\{c: 0<s_c<x\} \,/\, \#\{c: s_c>0\}$")
+    axes[1].set_title("(b) fraction of the condensing cells (s > 0) with s < x", fontsize=10)
+    for ax in axes:
+        ax.axhline(0.5, color="0.5", linestyle=":", linewidth=1)
+        ax.set_xlabel("x")
+        ax.set_xlim(S_MIN, 1.0)
+        ax.set_ylim(0, 1.02)
+        ax.grid(True, which="both", linestyle=":", alpha=0.5)
+        ax.legend(fontsize=8)
+    fig.suptitle(f"{T.VERSION} {res['name']}: where the error is (a) and where the condensing cells are (b); "
+                 r"$e_c=\hat Q_c-Q_c$, $e_c^2$ averaged over the seeds", fontsize=10)
     fig.tight_layout()
     fig.savefig(path, dpi=200)
     plt.close(fig)
 
 
 def plot_qc_relative(res, path):
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.6))
+    labels = rep_labels(res["runs"])
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.8))
     bins = np.linspace(-9, 1, 81)
-    for label, r in res["runs"].items():
+    for label in labels:
+        r = res["runs"][label]
         x = np.log10(r["s_rel"][r["s_rel"] > 0])
         if x.size:
             axes[0].hist(x, bins=bins, density=True, histtype="step", color=ra_colour(r["ra"]),
-                         linestyle="--" if r["set"] == "test" else "-", label=label)
-    axes[0].set_xlabel(r"$\log_{10}(s / q_s)$ in condensing cells")
-    axes[0].set_ylabel("density")
-    axes[0].legend(fontsize=6)
-    axes[0].set_title("relative supersaturation (validation blocks; test runs dashed)", fontsize=10)
-    runs = list(res["runs"].values())
+                         linestyle="--" if r["set"] == "test" else "-", label=ra_text(label))
+    axes[0].set_xlabel(r"$\log_{10}(s/q_s)$, condensing cells ($s>0$) only")
+    axes[0].set_ylabel("probability density")
+    axes[0].legend(fontsize=8)
+    axes[0].set_title(r"(a) relative supersaturation $s/q_s$ (validation blocks; test run dashed)", fontsize=10)
+    runs = [res["runs"][l] for l in labels]
     ra = np.log10([r["ra"] for r in runs])
-    axes[1].semilogy(ra, [pct(r["s_pos"], 50) for r in runs], "o", color="tab:blue", label="median s")
-    axes[1].semilogy(ra, [pct(r["s_rel"], 50) for r in runs], "s", color="tab:green", label="median s / q_s")
+    axes[1].semilogy(ra, [pct(r["s_pos"], 50) for r in runs], "o", color="tab:blue", label=r"median of $s$")
+    axes[1].semilogy(ra, [pct(r["s_rel"], 50) for r in runs], "s", color="tab:green", label=r"median of $s/q_s$")
     axes[1].set_xlabel(r"$\log_{10}$ Ra")
     axes[1].grid(True, which="both", linestyle=":", alpha=0.5)
     axes[1].legend(fontsize=8)
-    axes[1].set_title("condensing cells (s > 0)", fontsize=10)
-    fig.suptitle(f"{T.VERSION}: supersaturation in condensing cells", fontsize=11)
+    axes[1].set_title("(b) medians over the condensing cells", fontsize=10)
+    fig.suptitle(f"{T.VERSION}: supersaturation in condensing cells. A model given q (Q_c_C1) must build "
+                 r"$q_s=e^{\alpha(b-\beta z)}$; a relative error $\epsilon$ in $q_s$ gives "
+                 r"$|\hat Q_c-Q_c|/Q_c=\epsilon/(s/q_s)$", fontsize=10)
     fig.tight_layout()
     fig.savefig(path, dpi=200)
     plt.close(fig)
@@ -555,11 +675,14 @@ def main():
     text = summary_text(qd, qc, rows)
     (out / "summary.txt").write_text(text)
     print("\n" + text)
+    save_data(qd, qc, out / "diagnostics_data.npz")
     plot_qd_stencil(qd, out / "Qd_linear_baseline_stencil.png")
     plot_qd_errors(qd, rows, out / "Qd_linear_baseline_errors.png")
     plot_qd_conditioning(qd, out / "Qd_input_conditioning.png")
     for name in QC_NAMES:
-        plot_qc_bins(qc[name], out / f"Qc_{name.split('_')[-1]}_error_vs_supersaturation.png")
+        tag = name.split("_")[-1]
+        plot_qc_function(qc[name], out / f"Qc_{tag}_learned_function.png")
+        plot_qc_cumulative(qc[name], out / f"Qc_{tag}_cumulative_error.png")
     plot_qc_relative(qc[QC_NAMES[0]], out / "Qc_relative_supersaturation.png")
     elapsed = time.time() - t_start
     print(f"Elapsed: {elapsed:.1f} s ({elapsed / 60:.1f} min)")
