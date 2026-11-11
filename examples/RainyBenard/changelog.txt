@@ -5,6 +5,54 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-11  v033 diagnostics; masked convergence test; CLAUDE.md section 7
+---------------------------------------------------------------------
+- simulations_v2/diagnostics/v033_diagnostics.py (new; agreed with the user 2026-11-11): (1) Q_d
+  baseline: linear least squares (numpy lstsq, SVD) of Q_d / kappa on the 3 x 3 patch of b
+  (interior; each wall row separately, with an intercept), fitted on random cells of the training
+  blocks with b in float32, scored per run and block like the CNNs and next to them; also the
+  exact operator on the float32 b (the float32 floor). (2) Conditioning of the Q_d input:
+  eigenvalues of the covariance of the 9 normalised b values of an interior patch per training
+  run, and the share of the Laplacian direction in each eigenvector. (3) Q_c: the float32 floor of
+  (gamma/tau) max(s, 0), s = q - q_s; for Q_c_C2 and Q_c_C4 the histogram of s and the error per
+  bin of s (validation blocks, test runs, all seeds); s / q_s in condensing cells. Run in Docker
+  10:50-10:58 (7.8 min), log tmp/v033_diag/diagnostics.log (EXIT 0); outputs
+  simulations_v2/v033/diagnostics/ (summary.txt, Qd_linear_baseline_stencil.png,
+  Qd_linear_baseline_errors.png, Qd_input_conditioning.png, Qc_C2_error_vs_supersaturation.png,
+  Qc_C4_error_vs_supersaturation.png, Qc_relative_supersaturation.png).
+- simulations_v2/tests/test_v033_diagnostics.py (new): patch order, exact stencils recovered by
+  least squares, exact predictor, s bins; end to end on synthetic runs (stencils exact, floors at
+  round-off, binned Q_c errors equal to the evaluation's, no overwrite). Passes
+  (tmp/v033_tests/test_v033_diagnostics.log).
+- Results (simulations_v2/v033/diagnostics/summary.txt):
+  - Q_d: least squares recovers the exact stencil (interior centre -3.99998, neighbours 0.99999,
+    corners < 1e-5; wall-row centres -4.99994 and -4.99999, intercepts 0.000000 and 2.000000) and
+    reaches the float32 floor: relative error 5.2e-5 to 2.4e-4 on every run and block, equal to
+    the exact operator on the float32 b, against 0.44-0.95 for the CNNs.
+  - Conditioning: condition number of the patch covariance 3.2e9 (Ra 1e8) to 4.6e12 (Ra 1e6);
+    78-80% of the Laplacian direction lies in the smallest eigenvector; the variance of the
+    Laplacian combination is 4.8e-9 to 6.5e-8 of the largest eigenvalue.
+  - Q_c: float32 floor 3.6e-8, so the C2/C4 errors are the networks'. 94-99% of their squared
+    error is in cells with |s| < 1e-2 and half of it within |s| < 1.0e-3 to 3.2e-3 (widening with
+    Ra), while the 90th percentile of s in condensing cells falls from 7.1e-3 (Ra 1e6) to 1.8e-3
+    (Ra 1e8). Binned errors equal the evaluation's to < 3e-6.
+  - s / q_s in condensing cells: median 1.7e-5 to 3.3e-3, 10th percentile 2e-6 to 4e-5.
+- simulations_v2/Convergence test/masked_convergence.py (new) and
+  simulations_v2/tests/test_masked_convergence.py (new; passes,
+  tmp/v033_tests/test_masked_convergence.log): the Q_c-kink hypothesis of the handover doc
+  (section 5.1). The residual of analyse_convergence.py at Ra 1e8 split into cells where
+  q - q_s changes sign within the stencil window and the rest. Log
+  tmp/convergence/masked_convergence_run2.log (EXIT 0; the first launch through the bridge never
+  started and left no log), figure tmp/convergence/masked_convergence_Ra_1e8_Pr_1.png. Totals equal
+  analyse_convergence.log. Results: the crossing fraction grows ~ h (orders 0.73-1.07; 1.5e-4 of
+  the cells at h = dt); at h = dt the crossing cells give about two thirds of the squared
+  residual for cd2 and 99.8% for cd4 (cd4's window is twice as wide; each quantity is a median over
+  the 13 centres, taken separately; orders from one event, no error bars); the other cells converge at order 1.6-1.9 (cd2, h <= 0.2) and up to 3.2-3.5 (cd4, h 0.1-0.2,
+  order 1.4-2.0 below h = 0.05, 4.2e-5 at h = dt). The residual within crossing cells grows as
+  h^0.4-1.2, not h^1 as hypothesised, so their contribution scales as ~h^0.8-1.6, not h^1.5.
+- CLAUDE.md section 7: never run Git inside Docker, not even read-only commands appended to an
+  unrelated docker_run call; use git_status and git_diff (approved by the user 2026-11-11).
+
 2026-11-11  v033 round-1 evaluation: per-run errors, Q_d stencils, training curves, Q_c 2 x 2
 -------------------------------------------------------------------------------------------
 - simulations_v2/v033 evaluate.py (new): evaluates every v033 configuration and seed (imports the

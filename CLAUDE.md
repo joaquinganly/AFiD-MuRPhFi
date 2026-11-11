@@ -167,7 +167,7 @@ Raw simulation data, trained models, checkpoints and previous experimental resul
 Use Git to track all meaningful changes and make experimental work reversible.
 
 - Always use the `git_*` MCP tools provided by the rainybenard-docker server for Git operations. These execute directly in WSL as the normal Linux user, outside Docker.
-- Never run Git inside Docker (e.g. through `docker_run` or `docker_python`).
+- Never run Git inside Docker (e.g. through `docker_run` or `docker_python`), not even read-only commands such as `git diff --stat` appended to an unrelated `docker_run` call; use the `git_status` and `git_diff` tools instead.
 - Check the current branch and working-tree status before making changes.
 - Work on dedicated feature branches rather than directly on `main`.
 - Never discard, overwrite or revert existing user modifications.
