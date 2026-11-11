@@ -2,11 +2,13 @@
 
 Unit checks: whitening() gives Cov(W (x - xbar)) = I on correlated synthetic patches; the whitened
 model with readout weights u equals the raw model with kernel K = W^T u and bias c - u.W xbar on a
-random input (both with the ghost padding), and stencil() returns that K; the raw model with the
+random input (both with the ghost padding), and stencil() returns that K; raw_rescaled starts from
+the raw model's initial function and stencil() returns its kernel on x (S k~); the raw model with the
 exact kernel (sigma_b / (dz^2 sigma_y)) L reproduces the normalised Laplacian including the wall rows.
 End to end on small synthetic run folders (Q_d = kappa Lap b): Q_d_b trained for 1 epoch (for its
-normalisation), then the test script for 2 epochs: histories and stencils have the right lengths,
-outputs written, a second call refuses to overwrite.
+normalisation), then the test script for 2 epochs with the default models and again with
+raw_rescaled alone: histories and stencils have the right lengths, the second run reads the first as
+reference, outputs written, a second call refuses to overwrite.
 Usage (from simulations_v2/): python tests/test_v033_linear_conv.py diagnostics/v033_linear_conv_test.py
 """
 import os
@@ -60,6 +62,13 @@ mr.get_layer("stencil").set_weights([K.reshape(3, 3, 1, 1), np.array([c - u[0, 0
 assert np.allclose(mw.predict(x, verbose=0), mr.predict(x, verbose=0), rtol=1e-10, atol=1e-10)
 assert np.allclose(lc.stencil(mr, "raw"), K)
 
+S = 405.3
+m0 = lc.build("raw", pad)
+ms = lc.build_initialised("raw_rescaled", pad, kscale=S)
+assert np.allclose(ms.predict(x, verbose=0), m0.predict(x, verbose=0), rtol=1e-10, atol=1e-10)
+assert np.allclose(lc.stencil(ms, "raw_rescaled", kscale=S), lc.stencil(m0, "raw"), rtol=1e-12)
+assert np.abs(ms.get_layer("stencil").get_weights()[0]).max() < 1.0 / S
+
 dz = 1.0 / T.NZ
 sb, sy, mb = 0.3, 7.0, 0.2
 b = rng.random((2, T.NZ, T.NY)) + 0.01
@@ -68,7 +77,7 @@ me = lc.build("raw", pad_b)
 me.get_layer("stencil").set_weights([(EV.EXACT["interior"] * sb / (dz ** 2 * sy)).reshape(3, 3, 1, 1), np.zeros(1)])
 lap = np.stack([pp.laplacian(b[n], dz, dz, T.B_WALL[0], T.B_WALL[1]) for n in range(2)]) / sy
 assert np.allclose(me.predict(((b - mb) / sb)[..., None], verbose=0)[..., 0], lap, rtol=1e-10, atol=1e-8)
-print("Unit checks passed (whitening, equivalence of the two models, exact kernel incl. wall rows)")
+print("Unit checks passed (whitening, equivalence of the models, rescaled start, exact kernel incl. wall rows)")
 
 
 # ---------- end to end on synthetic run folders ----------
@@ -110,15 +119,25 @@ for label, ra in train.items():
 
 T.main(["Q_d_b", "1"])
 res = lc.main()
-for kind in lc.KINDS:
+for kind in lc.DEFAULT_KINDS:
     h = res["hist"][kind]
     assert len(h["loss"]) == len(h["val_loss"]) == 2 and len(h["stencils"]) == 3
     assert np.array(h["stencils"]).shape == (3, 3, 3)
 assert res["floor"] < 1e-10, res["floor"]
 out = T.OUT_DIR / lc.OUT_NAME
-for fname in ("summary.txt", "history.json", "linear_conv_raw_vs_whitened.png"):
+for fname in ("summary.txt", "history.json", "linear_conv_raw_whitened.png"):
     assert (out / fname).is_file(), fname
-assert set(json.loads((out / "history.json").read_text())["hist"]) == set(lc.KINDS)
+assert set(json.loads((out / "history.json").read_text())["hist"]) == set(lc.DEFAULT_KINDS)
 expect(SystemExit, lc.main)
+
+res2 = lc.main(["raw_rescaled"])
+assert set(res2["hist"]) == {"raw_rescaled"} and set(res2["ref"]) == set(lc.DEFAULT_KINDS)
+h = res2["hist"]["raw_rescaled"]
+assert len(h["val_loss"]) == 2 and np.allclose(h["stencils"][0], res["hist"]["raw"]["stencils"][0])
+out2 = T.OUT_DIR / f"{lc.OUT_NAME}_raw_rescaled"
+for fname in ("summary.txt", "history.json", "linear_conv_raw_rescaled.png"):
+    assert (out2 / fname).is_file(), fname
+expect(SystemExit, lc.main, ["raw_rescaled"])
+expect(SystemExit, lc.main, ["bogus"])
 shutil.rmtree(tmp)
 print("ALL v033 LINEAR-CONV TESTS PASSED")

@@ -5,6 +5,31 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-11  Linear test, control C: raw model with order-1 weights (raw_rescaled)
+-------------------------------------------------------------------------------
+- simulations_v2/diagnostics/v033_linear_conv_test.py: models chosen on the command line (raw,
+  whitened, raw_rescaled; default raw whitened into linear_conv_test/ as before, any other choice
+  into linear_conv_test_<models>/, whose summary and figure also show the earlier default run).
+  New model raw_rescaled: the raw model reparametrised as K = S k~ with S = sigma_b / (dz^2 sigma_y)
+  = 405.3 fixed (a non-trainable float64 1 x 1 convolution; Keras' Rescaling layer computes in
+  float32, found by the test), started from the raw model's initial function. Its exact weights are
+  k~ = L (order 1) and the conditioning of x is unchanged. Adam's steps do not depend on the scale of
+  the gradients (Kingma & Ba 2015, sec. 2.1), so with the same lr this model is equivalent to the raw
+  model with a learning rate S times larger (about 0.4), up to Adam's epsilon and the per-variable
+  clipnorm: it tests the raw model at the other end of the learning-rate range.
+  The default run's figure is now named linear_conv_raw_whitened.png. tests/test_v033_linear_conv.py
+  updated; passes (tmp/v033_tests/test_v033_linear_conv_2.log).
+- Run (the user's option C; 8.4 min), log tmp/v033_linear/linear_conv_test_C.log (EXIT 0), outputs
+  simulations_v2/v033/linear_conv_test_raw_rescaled/. Validation relative MSE 1.68 (epoch 1) to
+  1.94 (epoch 20), above 1 (worse than predicting zero) in every epoch; stencil x dz^2 after 20
+  epochs: centre -0.027, rows z+1 / z / z-1 about +0.02 / -0.02 / 0 (a vertical-gradient pattern);
+  the centre moved by -0.001 per epoch (about 1e-6 per update in k~, far below Adam's bound of
+  about lr = 1e-3 per update, i.e. the gradient's sign keeps alternating). So the raw model fails at
+  both ends: lr 1e-3 is stable but too slow (0.886 after 20 epochs), an effective lr of about 0.4 is
+  unstable (loss above 1) and still learns no Laplacian. Consistent with the conditioning
+  hypothesis (no single step size suits both the dominant and the Laplacian directions); a
+  learning-rate sweep in between would make it conclusive.
+
 2026-11-11  v033 diagnostics re-plotted; linear raw-vs-whitened test; CLAUDE.md section 12
 -----------------------------------------------------------------------------------------
 - simulations_v2/diagnostics/v033_diagnostics.py: figures redesigned at the user's request (the
