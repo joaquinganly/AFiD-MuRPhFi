@@ -23,7 +23,10 @@ s = q - q_s; the exact target Q_c = (gamma/tau) max(s, 0). Errors e_c = Q^_c - Q
     Laplacian combination, f_k = lambda_k (L^.v_k)^2 / L^T C L^ (sum_k f_k = 1); lambda_1 / L^T C L^;
     std(L.x) = sqrt(L^T C L) (each x_m has std ~ 1). For a linear unit trained by gradient
     descent, learning time is governed by the eigenvalues of C (LeCun, Kanter & Solla 1991;
-    LeCun, Bottou, Orr & Mueller 1998).
+    LeCun, Bottou, Orr & Mueller 1998). The eigenvectors v_k as 3 x 3 patterns, each matched to the
+    nearest template u_ab = P_a(z) P_b(y) built from the orthonormal polynomials of degree 0, 1, 2 on
+    three equally spaced points, P_0 = (1,1,1)/sqrt3, P_1 = (-1,0,1)/sqrt2, P_2 = (1,-2,1)/sqrt6 (mean,
+    first and second difference); in this basis L = sqrt2 u_20 + sqrt2 u_02 - 4 u_22.
  3. Q_c, for Q_c_C2 and Q_c_C4 on the validation blocks of the training runs and all evaluated
     frames of the test runs, every seed. (a) Floor: (gamma/tau) max(s, 0) from the float32 s
     against the stored Q_c. (b) The learned function: per linear bin B_k of s, the mean and
@@ -32,8 +35,8 @@ s = q - q_s; the exact target Q_c = (gamma/tau) max(s, 0). Errors e_c = Q^_c - Q
     and the fraction of condensing cells G(x) = #{c: 0 < s_c < x} / #{c: s_c > 0}. (d) s / q_s in
     condensing cells: the relative accuracy that a model given q instead of s (Q_c_C1) must reach
     in q_s = exp(alpha (b - beta z)). Figures show REP_RUNS; summary.txt lists every run.
-Output: simulations_v2/v033/diagnostics_2/ (refuses to overwrite; the first version's figures are
-        in v033/diagnostics/): summary.txt, diagnostics_data.npz, Qd_*.png, Qc_*.png.
+Output: simulations_v2/v033/diagnostics_3/ (refuses to overwrite; earlier figures in v033/diagnostics/
+        and v033/diagnostics_2/): summary.txt, diagnostics_data.npz, Qd_*.png, Qc_*.png.
 Usage : python diagnostics/v033_diagnostics.py   (from simulations_v2/, inside the Docker container)
 """
 import csv
@@ -47,6 +50,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 SIM = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location("v033_evaluate", SIM / "v033 evaluate.py")
@@ -55,7 +59,7 @@ _spec.loader.exec_module(EV)      # imports the training script as EV.T (loader,
 T = EV.T
 pp = T.pp
 
-OUT_NAME = "diagnostics_2"
+OUT_NAME = "diagnostics_3"
 SEED = 0
 FIT_CELLS = 250_000              # interior cells per training run for the fit (drawn with replacement)
 FIT_WALL_CELLS = 50_000          # cells per wall row per training run
@@ -70,6 +74,9 @@ SHARE_EDGES = (1e-5, 1e-4, 1e-3, 1e-2)
 KINDS = ("interior", "bottom", "top")
 DIS = {"interior": (-1, 0, 1), "bottom": (0, 1), "top": (-1, 0)}   # patch rows relative to the cell
 LAPLACIAN = np.array([0., 1., 0., 1., -4., 1., 0., 1., 0.])       # patch order [di + 1, dj + 1]
+GRAM = (np.array([1.0, 1.0, 1.0]) / math.sqrt(3.0), np.array([-1.0, 0.0, 1.0]) / math.sqrt(2.0),
+        np.array([1.0, -2.0, 1.0]) / math.sqrt(6.0))   # orthonormal polynomials of degree 0, 1, 2 on 3 points
+TEMPLATES = {(a, b): np.outer(GRAM[a], GRAM[b]).ravel() for a in range(3) for b in range(3)}   # patch order
 
 
 # ============================================================
@@ -153,12 +160,27 @@ def patch_covariance(b, sb, rng):
     C = np.cov(X, rowvar=False)
     lam, V = np.linalg.eigh(C)
     lam, V = lam[::-1], V[:, ::-1]                   # descending
+    V = V * np.where(V[np.argmax(np.abs(V), axis=0), np.arange(9)] < 0.0, -1.0, 1.0)   # sign: largest entry > 0
     L = LAPLACIAN / np.linalg.norm(LAPLACIAN)
     share = (V.T @ L) ** 2
     lap_var = float(L @ C @ L)                       # = sum_k lambda_k share_k
-    return {"eig": lam, "share": share, "contrib": lam * share / lap_var, "cond": float(lam[0] / lam[-1]),
+    return {"eig": lam, "V": V, "share": share, "contrib": lam * share / lap_var, "cond": float(lam[0] / lam[-1]),
             "lap_var": lap_var, "lap_std": math.sqrt(float(LAPLACIAN @ C @ LAPLACIAN)),
             "trace": float(np.trace(C))}
+
+
+def template_match(v):
+    """(a, b, |v.u_ab|) for the template u_ab = P_a(z) P_b(y) nearest to the unit vector v."""
+    (a, b), u = max(TEMPLATES.items(), key=lambda kv: abs(float(kv[1] @ v)))
+    return a, b, abs(float(u @ v))
+
+
+def derivative_text(a, b, tex=False):
+    """d_z^a d_y^b as text: the derivative that the template u_ab differences (P_1: first, P_2: second)."""
+    if a == b == 0:
+        return "mean"
+    parts = [(rf"\partial_{v}" if tex else f"d_{v}") + (f"^{k}" if k > 1 else "") for v, k in (("z", a), ("y", b)) if k]
+    return "$" + "".join(parts) + "$" if tex else " ".join(parts)
 
 
 def qd_diagnostics():
@@ -389,6 +411,9 @@ def summary_text(qd, qc, rows):
           f"   {COND_CELLS} random cells per training run (training block). C = sum_k lambda_k v_k v_k^T, descending;",
           "   L = (0,1,0,1,-4,1,0,1,0), L^ = L / sqrt(20). share_k = (L^.v_k)^2; f_k = lambda_k share_k / L^T C L^",
           "   (contribution of direction k to Var(L^.x); sum_k f_k = 1); std(L.x) = sqrt(L^T C L) (each x_m: std ~ 1)."]
+    L.append("   Templates u_ab = P_a(z) P_b(y), P_0 = (1,1,1)/sqrt3, P_1 = (-1,0,1)/sqrt2, P_2 = (1,-2,1)/sqrt6; L = "
+             + " ".join(f"{float(u @ LAPLACIAN):+.4f} u_{a}{b}" for (a, b), u in TEMPLATES.items()
+                        if abs(float(u @ LAPLACIAN)) > 1e-12))
     for label, c in qd["cond"].items():
         L.append(f"   {label:<15} lambda_1 {c['eig'][0]:.3f}  lambda_1/lambda_9 {c['cond']:.2e}  "
                  f"lambda_1/L^T C L^ {c['eig'][0] / c['lap_var']:.2e}  std(L.x) {c['lap_std']:.2e}  "
@@ -396,6 +421,9 @@ def summary_text(qd, qc, rows):
         L.append("      lambda_k / lambda_1 " + " ".join(f"{v / c['eig'][0]:.1e}" for v in c["eig"]))
         L.append("      share_k             " + " ".join(f"{v:.1e}" for v in c["share"]))
         L.append("      f_k                 " + " ".join(f"{v:.1e}" for v in c["contrib"]))
+        L.append("      v_k nearest template (|v_k.u_ab|): " + ", ".join(
+            f"{k + 1}: {derivative_text(a, b)} ({dot:.3f})"
+            for k, (a, b, dot) in enumerate(template_match(c["V"][:, k]) for k in range(9))))
     L += ["", "3. Q_c (validation blocks of the training runs; test runs: all their evaluated frames). s = q - q_s.",
           "   floor: (gamma/tau) max(s, 0) from the float32 s against the stored Q_c; rel: CNN relative RMS error",
           "   (mean of the seeds; 'check' = largest relative difference from the evaluation's per_run_errors.csv);",
@@ -431,7 +459,7 @@ def summary_text(qd, qc, rows):
 def save_data(qd, qc, path):
     d = {}
     for label, c in qd["cond"].items():
-        for k in ("eig", "share", "contrib"):
+        for k in ("eig", "share", "contrib", "V"):
             d[f"cond__{label}__{k}"] = c[k]
     for name, res in qc.items():
         d[f"{name}__edges"] = res["edges"]
@@ -486,31 +514,57 @@ def plot_qd_stencil(qd, path):
 
 
 def plot_qd_errors(qd, rows, path):
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    series = [("linear least squares", "k", lambda e: e["fit"]),
-              ("exact operator on float32 b", "0.6", lambda e: e["exact"]),
-              ("Q_d_a CNN (mean of 3 seeds)", "tab:blue", lambda e: eval_rel(rows, "Q_d_a", e["run"], e["set"])),
-              ("Q_d_b CNN (mean of 3 seeds)", "tab:orange", lambda e: eval_rel(rows, "Q_d_b", e["run"], e["set"])),
-              ("best z-profile", "tab:red", lambda e: eval_ref(rows, "Q_d_a", e["run"], e["set"]))]
-    off = {"train": -0.03, "val": 0.03, "test": 0.0}
-    for lab, col, fn in series:
-        for st, mk in SET_MARK.items():
-            es = [e for e in qd["errors"] if e["set"] == st]
-            if es:
-                ax.scatter(np.log10([e["ra"] for e in es]) + off[st], [fn(e) for e in es], color=col, marker=mk,
-                           s=90 if mk == "*" else 28, label=f"{lab}" if st == "val" else None)
-    for st, mk in SET_MARK.items():
-        ax.scatter([], [], color="0.3", marker=mk, label={"train": "training block", "val": "validation block",
-                                                          "test": "test run"}[st])
-    ax.axhline(1.0, color="0.5", linestyle=":", linewidth=1)
-    ax.set_yscale("log")
-    ax.set_xlabel(r"$\log_{10}$ Ra")
-    ax.set_ylabel(r"relative RMS error $\sqrt{\sum (p-y)^2 / \sum y^2}$")
-    ax.grid(True, which="both", linestyle=":", alpha=0.5)
-    ax.legend(fontsize=7, ncol=2)
-    ax.set_title(f"{T.VERSION}: Q_d, linear least-squares baseline vs CNNs (dotted: error of predicting zero)",
-                 fontsize=10)
-    fig.tight_layout()
+    errs = qd["errors"]
+    ra_of = {e["run"]: e["ra"] for e in errs}
+    runs = sorted(ra_of, key=lambda l: (l in T.TEST_RUNS, ra_of[l]))
+    xpos = {l: k for k, l in enumerate(runs)}
+    ntrain = sum(l not in T.TEST_RUNS for l in runs)
+    models = (("Q_d_a", "tab:blue", -0.25, "o", "Q_d_a CNN (inputs b, log10 Ra; target Q_d): mean of the seeds, bar = range"),
+              ("Q_d_b", "tab:orange", 0.0, "o", "Q_d_b CNN (input b; target Q_d / kappa): mean of the seeds, bar = range"),
+              (None, "tab:red", 0.25, "D", "best function of z alone (the run's mean profile of the target)"))
+    dxs = {"train": -0.07, "val": 0.07, "test": 0.0}
+    fig, (ax, axb) = plt.subplots(2, 1, figsize=(14, 10), gridspec_kw={"height_ratios": (3, 2)}, layout="constrained")
+    for e in errs:
+        x0 = xpos[e["run"]] + dxs[e["set"]]
+        face = "white" if e["set"] == "train" else None
+        for cfg, col, off, mk, _ in models:
+            if cfg is None:
+                ax.plot(x0 + off, eval_ref(rows, "Q_d_a", e["run"], e["set"]), mk, ms=6, color=col,
+                        mfc=face or col, mew=1.3)
+                continue
+            vals = [float(r["rel_rmse"]) for r in rows
+                    if r["config"] == cfg and r["run"] == e["run"] and r["set"] == e["set"]]
+            if vals:
+                m = float(np.mean(vals))
+                ax.errorbar(x0 + off, m, yerr=[[m - min(vals)], [max(vals) - m]], fmt=mk, ms=6, color=col,
+                            mfc=face or col, mew=1.3, capsize=2.5, elinewidth=1.0)
+        axb.plot(xpos[e["run"]] + dxs[e["set"]], e["fit"], "o", ms=6, color="k", mfc=face or "k", mew=1.3)
+    for a in (ax, axb):
+        a.axvline(ntrain - 0.5, color="0.3", lw=1.0)
+        a.set_xticks(range(len(runs)), [ra_text(l) for l in runs])
+        a.set_xlim(-0.6, len(runs) - 0.4)
+        a.grid(True, axis="y", which="both", ls=":", alpha=0.5)
+        a.set_ylabel(r"relative RMS error $\sqrt{\sum_c(\hat y_c-y_c)^2/\sum_c y_c^2}$")
+    ax.axhline(1.0, color="0.4", ls=":", lw=1.0)
+    ax.set_ylim(0.0, 1.1)
+    for x, ha, txt in ((ntrain - 0.55, "right", "training runs"), (ntrain - 0.45, "left", "test runs")):
+        ax.text(x, 1.05, txt, ha=ha, va="center", fontsize=9)
+    ax.set_title("(a) the CNNs and the best function of z alone, per run and block (dotted: predicting "
+                 r"$Q_d=0$, error 1). y = $Q_d/\kappa$ for Q_d_b, $Q_d$ otherwise; c runs over every cell of "
+                 "the block's frames", fontsize=10, loc="left")
+    handles = [Line2D([], [], marker=mk, ls="", color=col, mfc=col, label=lab) for _, col, _, mk, lab in models]
+    handles += [Line2D([], [], marker="o", ls="", color="0.25", mfc="white", mew=1.3,
+                       label="open: training block (frames 25-748, every 3rd)"),
+                Line2D([], [], marker="o", ls="", color="0.25", mfc="0.25",
+                       label="filled: validation block (811-1000, every 3rd) or test run (both blocks' frames)")]
+    ax.legend(handles=handles, loc="lower left", fontsize=8, framealpha=0.95)
+    ratio = [abs(e["fit"] - e["exact"]) / e["exact"] for e in errs if e["exact"] > 0]
+    axb.set_yscale("log")
+    axb.set_title("(b) linear least squares of $Q_d/\\kappa$ on the 3x3 patch of b (fitted on training blocks; "
+                  "the CNN's linear part solved directly).\nIts error equals that of the exact operator on the "
+                  f"float32 b to a relative difference of at most {max(ratio):.1e}", fontsize=10, loc="left")
+    axb.legend(handles=handles[3:], loc="upper right", fontsize=8)
+    fig.suptitle(f"{T.VERSION}: Q_d, CNNs against a linear least-squares baseline and the best z-profile", fontsize=11)
     fig.savefig(path, dpi=200)
     plt.close(fig)
 
@@ -549,6 +603,47 @@ def plot_qd_conditioning(qd, path):
     fig.suptitle(f"{T.VERSION}: conditioning of the Q_d input. x = the 9 values b / {qd['sb']:.4f} of an interior "
                  r"3x3 patch; $L=(0,1,0,1,-4,1,0,1,0)$, $\hat L = L/\sqrt{20}$", fontsize=11)
     fig.tight_layout()
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+
+
+def plot_qd_eigenvectors(qd, path):
+    labels = list(qd["cond"])
+    labels = [labels[0], labels[-1]] if len(labels) > 1 else labels
+    Lh = LAPLACIAN / np.linalg.norm(LAPLACIAN)
+    coef = {ab: float(u @ Lh) for ab, u in TEMPLATES.items() if abs(float(u @ Lh)) > 1e-12}
+    lap = " ".join(f"{v:+.3f} $u_{{{a}{b}}}$" for (a, b), v in coef.items())
+    fig, axes = plt.subplots(len(labels), 10, figsize=(21, 2.45 * len(labels) + 1.9), squeeze=False,
+                             layout="constrained")
+    for i, label in enumerate(labels):
+        c = qd["cond"][label]
+        for k in range(10):
+            ax = axes[i][k]
+            if k < 9:
+                v = c["V"][:, k]
+                a, b, dot = template_match(v)
+                title = (f"$v_{{{k + 1}}}$ ~ {derivative_text(a, b, tex=True)} ($u_{{{a}{b}}}$; |v.u| = {dot:.3f})\n"
+                         rf"$\lambda_{{{k + 1}}}/\lambda_1$ = {c['eig'][k] / c['eig'][0]:.1e},  "
+                         rf"$f_{{{k + 1}}}$ = {c['contrib'][k]:.3f}")
+            else:
+                v = Lh
+                title = r"$\hat L=L/\sqrt{20}$ (Laplacian)" + "\n" + lap
+            g = v.reshape(3, 3)
+            ax.imshow(g, origin="lower", cmap="RdBu_r", vmin=-0.9, vmax=0.9)
+            for p in range(3):
+                for q in range(3):
+                    ax.text(q, p, f"{g[p, q]:+.2f}", ha="center", va="center", fontsize=7.5)
+            ax.set_xticks([0, 1, 2], ["y-1", "y", "y+1"], fontsize=7)
+            ax.set_yticks([0, 1, 2], ["z-1", "z", "z+1"], fontsize=7)
+            ax.set_title(title, fontsize=7.5)
+        axes[i][0].set_ylabel(f"{ra_text(label)}\n(training block)", fontsize=10)
+    fig.suptitle(f"{T.VERSION}: eigenvectors $v_k$ of $C=\\mathrm{{Cov}}(x)$ as 3x3 patterns (x: the 9 values b / "
+                 f"{qd['sb']:.4f} of an interior patch; bottom row z-1; sign arbitrary, largest entry positive), in "
+                 "order of decreasing variance $\\lambda_k$.\nEach is matched to the nearest template $u_{ab}=P_a(z)P_b(y)$, "
+                 "$P_0=(1,1,1)/\\sqrt{3}$, $P_1=(-1,0,1)/\\sqrt{2}$, $P_2=(1,-2,1)/\\sqrt{6}$ (orthonormal polynomials of "
+                 "degree 0, 1, 2 on three equally spaced points: mean, first and second difference); |v.u| = 1 is a "
+                 "perfect match.\n$f_k=\\lambda_k(\\hat L\\cdot v_k)^2/\\hat L^TC\\hat L$: share of the variance of the "
+                 "Laplacian combination $\\hat L\\cdot x$ from $v_k$ ($\\sum_k f_k=1$)", fontsize=10)
     fig.savefig(path, dpi=200)
     plt.close(fig)
 
@@ -679,6 +774,7 @@ def main():
     plot_qd_stencil(qd, out / "Qd_linear_baseline_stencil.png")
     plot_qd_errors(qd, rows, out / "Qd_linear_baseline_errors.png")
     plot_qd_conditioning(qd, out / "Qd_input_conditioning.png")
+    plot_qd_eigenvectors(qd, out / "Qd_input_eigenvectors.png")
     for name in QC_NAMES:
         tag = name.split("_")[-1]
         plot_qc_function(qc[name], out / f"Qc_{tag}_learned_function.png")

@@ -5,6 +5,79 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-11  v034 stencil CNN (option ii + whitened b patch for the Q_d configurations); training queue
+-----------------------------------------------------------------------------------------------------
+- simulations_v2/v034 stencil CNN.py (new; agreed with the user 2026-11-11: option ii, then option B):
+  copy of "v033 stencil CNN.py" with two changes. (1) The learning rate is held at 1e-3 for the first 50
+  epochs; ReduceLROnPlateau (DelayedReduceLROnPlateau, a subclass acting only from epoch 51) and
+  EarlyStopping(start_from_epoch=50) act afterwards; at most 150 epochs; the saved model is still the
+  epoch with the lowest validation loss. (2) Q_d_a and Q_d_b: a fixed whitening layer on the 3 x 3
+  patch of the normalised b, x~ = Lambda^(-1/2) V^T (x - xbar), from the pooled covariance of 250,000
+  random interior patches per training run (training blocks, seed 42; the construction of the linear
+  test); the other channel (log10 Ra) passes its centre value; then a trainable 1 x 1 convolution (32
+  filters) instead of the 3 x 3 one: same function class and receptive field. Padding and whitening
+  run in float64 (in float32 the whitening sum cancels terms up to lambda_9^(-1/2) ~ 1e6 in size); the
+  first call per configuration stores W, xbar and the eigenvalues in normalization_constants.npz and
+  config.json, later calls (other seeds) load them. Float64 Conv2D runs on this GPU (5 ms per batch of
+  2 frames, checked). .gitignore: the script is tracked.
+- simulations_v2/tests/test_v034_stencil_cnn.py (new): the v033 test plus whitened patches with
+  identity covariance; float64 whitening + float32 1 x 1 readout with the exact weights reproduces
+  postprocess.laplacian to 2.0e-7 at an eigenvalue ratio of 5.5e11; receptive field 3 x 3; the delayed
+  learning-rate schedule and early stopping; whitening stored, saved in the model and reused. Passes
+  (tmp/v034_tests/test_v034_stencil_cnn_3.log; earlier runs failed on test tolerances below the
+  float64 round-off of a synthetic field with eigenvalue ratio 2.9e15, fixed in the test).
+- Training queue tmp/v034_train/run_v034_queue.sh (Q_d_a, Q_d_b, Q_c_C1..C4 x seeds 42, 43, 44; one log
+  per model ending in EXIT; pauses before a model that might not fit in the 240-min limit of one Docker
+  call, re-launch to continue), launched after this commit; times in tmp/v034_train/queue.log; outputs
+  simulations_v2/v034/.
+
+2026-11-11  v033 CNN predictions against the DNS on the test runs; diagnostics_3
+--------------------------------------------------------------------------------
+- simulations_v2/diagnostics/v033_dns_vs_cnn.py (new; agreed with the user 2026-11-11) and
+  tests/test_v033_dns_vs_cnn.py (new; passes, tmp/v033_tests/test_v033_dns_vs_cnn_2.log; the first run
+  failed on a test tolerance below float32 round-off, fixed in the test). Every frame (0..1000) of the
+  test runs Ra 8.7e6 and 1.5e8 predicted by every v033 model (6 configurations x 3 seeds), each frame
+  from that frame's DNS inputs; the same analyses on the DNS terms and on the predictions: snapshots
+  (Q, Q^ and Q^ - Q on one colour scale, whole domain and a 2 x 1 zoom; seed 42) at t* = argmax over
+  t >= 25 of <Q_c>(t) and at the quietest frame; domain means <Q>(t); mean profiles <Q>_{y,t}(z); joint
+  histograms of (Q, Q^); histograms; condensing cells (DNS {Q_c > 0} and {Q_c > eps}, CNN
+  {Q^_c > eps}, eps = (gamma/tau) 1e-5): cumulative distribution of s, distribution of s / q_s,
+  medians, overlap of the eps-sets; GIFs of Q_c, Q^_c (Q_c_C4, seed 42) and Q^_c - Q_c, every frame.
+  Run 17:24-17:39 (15.3 min), log tmp/v033_dns_vs_cnn/dns_vs_cnn.log (EXIT 0); outputs
+  simulations_v2/v033/dns_vs_cnn/. Check: the relative RMS error over the evaluation's frames equals
+  evaluation/per_run_errors.csv (largest relative difference 4.5e-11).
+- Results (summary.txt; ranges over the 3 seeds; Ra 8.7e6 / Ra 1.5e8):
+  - Q_c_C4: relative RMS error over every frame 0.026-0.031 / 0.085-0.108 (frames 0-24, the drizzle
+    start: 0.12-0.14 / 0.15-0.18); mean_t <Q^_c>(t) / mean_t <Q_c>(t) = 1.011-1.014 / 1.003-1.023;
+    Q^_c < 0 in 47-56% / 49-60% of the cells (negative part -0.4 to -0.7% / -1.5 to -3.0% of sum Q_c).
+    Q_c_C2 similar, slightly worse (0.037-0.038 / 0.115-0.124).
+  - Condensing cells: DNS {Q_c > 0} 4.6% / 1.8% of the cells, {Q_c > eps} 3.7% / 1.2%; C4 {Q^_c > eps}
+    4.3-4.5% / 2.1-2.2%; it contains 96-99% / 98% of the DNS eps-set, and 80-83% / 54-59% of it lies in
+    the DNS eps-set. Medians of s: DNS eps-set 1.0e-4 / 1.45e-4, C4 set 8.2-8.7e-5 / 6.4-6.6e-5; of
+    s / q_s: 2.2e-4 / 2.5e-4 and 1.7-2.0e-4 / 1.4-1.55e-4.
+  - Q_c_C1, Q_c_C3: Q^_c > eps in 4-83% / 3-82% of the cells; domain-mean ratio 0.27-1.13 / -0.02 to 2.98.
+  - Q_d_a: relative RMS error 0.61-0.64 / 0.79-0.80; Q_d_b 0.68-0.76 / 0.87-0.94; domain-mean ratio
+    0.66-1.77 (both configurations).
+  - t* = 25 in both runs: after t = 25 the largest domain-mean condensation is the decay of the onset
+    burst (<Q_c> peaks before t = 25); the largest later events are at t = 137 (Ra 8.7e6) and t = 550
+    (Ra 1.5e8). Ra 1.5e8 has no condensing cell in frames 751-810.
+- simulations_v2/diagnostics/v033_diagnostics.py: errors figure redesigned (the user found it unreadable:
+  hidden series, one marker shape for two meanings, legend over the data, 4 decades of log axis):
+  (a) CNNs and the best z-profile on a linear axis, runs as categories (training runs, then test runs),
+  colour = model, open = training block, filled = validation block or test run, bars = range over the
+  seeds; (b) the least-squares baseline alone on a log axis. New figure Qd_input_eigenvectors.png: the
+  eigenvectors v_k of the patch covariance as 3 x 3 patterns (Ra 1e6 and Ra 1e8), each matched to the
+  nearest template u_ab = P_a(z) P_b(y) of the orthonormal polynomials of degree 0-2 on 3 points
+  (mean, first and second difference); eigenvector signs fixed (largest entry positive); eigenvectors
+  saved in diagnostics_data.npz; matches listed in summary.txt. Output folder diagnostics_3/
+  (diagnostics/ and diagnostics_2/ kept). tests/test_v033_diagnostics.py updated; passes
+  (tmp/v033_tests/test_v033_diagnostics_3.log). Run 17:40-17:48 (7.7 min), log
+  tmp/v033_diag/diagnostics_3.log (EXIT 0); sections 1, 3 and 4 of summary.txt identical to diagnostics_2.
+- Result: in every training run the eigenvectors are the templates in Taylor order, |v_k . u_ab| >= 0.987:
+  v_1 mean, v_2 d_z, v_3 d_y, v_4 d_z^2, v_5 d_z d_y, v_6 d_y^2, v_7 d_z^2 d_y, v_8 d_z d_y^2, v_9 d_z^2 d_y^2.
+  In this basis L = sqrt2 u_20 + sqrt2 u_02 - 4 u_22: 80% of |L|^2 is the fourth-order term (direction 9),
+  while the variance of L.x comes mostly from the vertical curvature (direction 4).
+
 2026-11-11  Linear test, control C: raw model with order-1 weights (raw_rescaled)
 -------------------------------------------------------------------------------
 - simulations_v2/diagnostics/v033_linear_conv_test.py: models chosen on the command line (raw,

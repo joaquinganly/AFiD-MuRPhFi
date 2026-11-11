@@ -67,6 +67,19 @@ r0 = np.random.default_rng(0)
 tt, ii, jj = r0.integers(0, 5, 20000), r0.integers(1, T.NZ - 1, 20000), r0.integers(0, T.NY, 20000)
 Lx = dg.gather(B, tt, ii, jj, dg.DIS["interior"]) @ dg.LAPLACIAN / 0.5
 assert math.isclose(cv["lap_std"], float(np.std(Lx, ddof=1)), rel_tol=1e-9), (cv["lap_std"], np.std(Lx, ddof=1))
+V = cv["V"]
+Cx = np.cov(dg.gather(B, tt, ii, jj, dg.DIS["interior"]) / 0.5, rowvar=False)
+assert np.allclose(V.T @ V, np.eye(9), atol=1e-10) and np.allclose(Cx @ V, V * cv["eig"], atol=1e-9 * cv["eig"][0])
+assert (V[np.argmax(np.abs(V), axis=0), np.arange(9)] > 0).all()
+U = np.array(list(dg.TEMPLATES.values()))
+assert np.allclose(U @ U.T, np.eye(9), atol=1e-12)
+for ab, u in dg.TEMPLATES.items():
+    assert dg.template_match(u)[:2] == ab and math.isclose(dg.template_match(-u)[2], 1.0)
+coef = {ab: float(u @ dg.LAPLACIAN) for ab, u in dg.TEMPLATES.items()}
+assert sum(abs(v) > 1e-12 for v in coef.values()) == 3
+assert all(math.isclose(coef[ab], v) for ab, v in {(2, 0): math.sqrt(2), (0, 2): math.sqrt(2), (2, 2): -4.0}.items())
+assert dg.derivative_text(2, 1) == "d_z^2 d_y" and dg.derivative_text(0, 0) == "mean"
+assert dg.derivative_text(1, 2, tex=True) == "$\\partial_z\\partial_y^2$"
 
 E = dg.s_edges()
 s = np.concatenate([np.zeros(3), 10 ** rng.uniform(-9, 3, 500), -10 ** rng.uniform(-9, 3, 500)])
@@ -84,7 +97,8 @@ sse[c], sse[c + 5], sse[c - 9] = 1.0, 1.0, 2.0
 pos = E[len(E) // 2:]
 assert math.isclose(dg.share_within(sse, pos[5], E), 0.5) and math.isclose(dg.share_within(sse, pos[4], E), 0.25)
 assert dg.s_half(sse, E) == pos[5] and math.isclose(dg.cum_within(sse, E)[-1], 1.0)
-print("Unit checks passed (patch order, least squares, exact predictor, variance contributions, s bins and shares)")
+print("Unit checks passed (patch order, least squares, exact predictor, variance contributions, eigenvectors and "
+      "templates, s bins and shares)")
 
 
 # ---------- end to end on synthetic run folders ----------
@@ -188,12 +202,12 @@ assert res["qc"][dg.QC_NAMES[1]]["runs"]["Ra_1e6_Pr_1"]["s_rel"] is None
 
 out = T.OUT_DIR / dg.OUT_NAME
 for fname in ("summary.txt", "diagnostics_data.npz", "Qd_linear_baseline_stencil.png",
-              "Qd_linear_baseline_errors.png", "Qd_input_conditioning.png", "Qc_C2_learned_function.png",
+              "Qd_linear_baseline_errors.png", "Qd_input_conditioning.png", "Qd_input_eigenvectors.png", "Qc_C2_learned_function.png",
               "Qc_C4_learned_function.png", "Qc_C2_cumulative_error.png", "Qc_C4_cumulative_error.png",
               "Qc_relative_supersaturation.png"):
     assert (out / fname).is_file(), fname
 with np.load(out / "diagnostics_data.npz") as d:
-    assert "Q_c_C4__Ra_1e6_Pr_1__lin_mean" in d.files and "cond__Ra_1e6_Pr_1__contrib" in d.files
+    assert "Q_c_C4__Ra_1e6_Pr_1__lin_mean" in d.files and "cond__Ra_1e6_Pr_1__contrib" in d.files and "cond__Ra_1e6_Pr_1__V" in d.files
 expect(SystemExit, dg.main)
 shutil.rmtree(tmp)
 print("End-to-end diagnostics test passed (exact stencils recovered, floors at round-off, binned errors = evaluation)")
