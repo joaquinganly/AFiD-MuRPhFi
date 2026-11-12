@@ -5,6 +5,36 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-12  v034 evaluation and CNN-vs-DNS comparison on the test runs
+-----------------------------------------------------------------------
+- simulations_v2/v034 evaluate.py (new) and simulations_v2/diagnostics/v034_dns_vs_cnn.py (new; agreed
+  with the user 2026-11-12): copies of "v033 evaluate.py" and diagnostics/v033_dns_vs_cnn.py that import
+  the v034 modules; analyses, frames and figures as in v033 (the v033 scripts, which produced the v033
+  results, are unchanged). Tests tests/test_v034_evaluate.py (the v033 test plus: the stencil probe
+  recovers the Laplacian through a whitened linear model) and tests/test_v034_dns_vs_cnn.py; both pass
+  (tmp/v034_tests/test_v034_evaluate.log, tmp/v034_tests/test_v034_dns_vs_cnn.log). .gitignore: the
+  evaluation script is tracked.
+- Runs 2026-11-12 ~17:56-18:32 UTC: evaluation 19.9 min, log tmp/v034_eval/evaluate.log (EXIT 0), outputs
+  simulations_v2/v034/evaluation/; comparison 15.4 min, log tmp/v034_dns_vs_cnn/dns_vs_cnn.log (EXIT 0),
+  outputs simulations_v2/v034/dns_vs_cnn/. Checks: recomputed validation loss = Keras history to < 1e-6;
+  the comparison reproduces evaluation/per_run_errors.csv to 2.3e-7.
+- Results (relative RMS error sqrt(sum (p - y)^2 / sum y^2) per run, mean of 3 seeds; v033 in brackets):
+  - Q_d_b: 2.5e-4 to 4.5e-4 on every training run and block; test runs Ra 8.7e6 2.7e-4, Ra 1.5e8 4.4e-4
+    (v033 0.61-0.89; 0.72, 0.91). Learned response to b (x dz^2): interior centre -3.991, -4.006, -3.997
+    (seeds 42-44), neighbours 0.99-1.02, corners within 0.014, the same in every run; wall rows centre
+    -4.98 to -5.02, neighbours 0.99-1.02 (exact: -4, 1, 0; wall centre -5). Every frame of the test runs:
+    time mean of the domain mean <Q^_d> equal to the DNS to 4 digits; frames 0-24 (start-up transient, in
+    no training block) 3.6e-3 to 5.2e-3 (Ra 8.7e6) and 8.9e-4 to 1.3e-3 (Ra 1.5e8); frames 25-1000
+    2.5e-4 to 3.0e-4 and 3.8e-4 to 4.8e-4.
+  - Q_d_a: 5.8e-3 (Ra 1e6) to 4.6e-2 (Ra 5e7, 1e8) on the validation blocks; test runs 1.7e-2 (Ra 8.7e6)
+    and 0.175 (Ra 1.5e8, beyond the training range of log10 Ra). Its response to b is not the Laplacian:
+    centre coefficient (x dz^2 / kappa) about -1.1 to -1.4 at Ra 1e6 and -3.9 to -4.3 at Ra 1e8;
+    coefficient sums -0.2 to +1.0 (exact 0).
+  - Q_c: as v033. Validation blocks C2 0.010-0.091, C4 0.011-0.073, C1 0.45-0.65, C3 0.57-0.86; 2 x 2
+    effects on log10 relative MSE: A (q -> q - q_s) -2.60 +- 0.04 (v033 -2.68), B (drop z) +0.01, AB -0.14.
+    Test runs C4 0.024 / 0.088 (Ra 8.7e6 / 1.5e8); C4's {Q^_c > eps} contains 97-99% / 97-98% of the DNS
+    eps-set, and 82-83% / 59-63% of it lies in the DNS eps-set (v033 80-83% / 54-59%).
+
 2026-11-12  v034 training: all 18 models (6 configurations x seeds 42-44)
 -----------------------------------------------------------------------
 - Queue tmp/v034_train/run_v034_queue.sh, 2026-11-11 17:51 to 2026-11-12 09:39 UTC, re-launched by Claude
