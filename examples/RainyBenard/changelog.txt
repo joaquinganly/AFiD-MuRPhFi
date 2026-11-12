@@ -5,6 +5,33 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-12  v034 training: all 18 models (6 configurations x seeds 42-44)
+-----------------------------------------------------------------------
+- Queue tmp/v034_train/run_v034_queue.sh, 2026-11-11 17:51 to 2026-11-12 09:39 UTC, re-launched by Claude
+  after each planned pause (21:09, 00:49, 03:58, 06:43; one Docker call is limited to 240 min); one log
+  per model in tmp/v034_train/, times in tmp/v034_train/queue.log; ~27-28 s per epoch; outputs
+  simulations_v2/v034/<config>/.
+- Interruption: Q_c_C4 seed 44 was stopped at epoch 104 on 2026-11-12 09:39 UTC (laptop unplugged; the
+  user sent SIGINT, exit 130). Its partial folder (model.keras of the best epoch so far, history.csv) was
+  moved, not deleted, to simulations_v2/v034/Q_c_C4/interrupted_seed_44_20261112/. Re-run from scratch at
+  the user's request (resuming would lose Adam's state and the learning-rate schedule's state, so the
+  protocol would differ from the other 17 models): 16:17-17:23 UTC, log
+  tmp/v034_train/Q_c_C4_seed44_rerun.log (EXIT 0). Every model ended with exit 0.
+- Results: epochs run, best epoch, best validation loss (mean over the training runs of the relative MSE
+  sum (p - y)^2 / sum y^2 on the validation blocks; simulations_v2/v034/<config>/summary.txt), per seed
+  42 / 43 / 44; v033 best validation loss for comparison (simulations_v2/v033/<config>/summary.txt):
+    Q_d_a   v034 133/121/9.04e-4, 127/115/7.05e-4, 134/122/8.47e-4   v033 0.503, 0.481, 0.481
+    Q_d_b   v034 150/150/1.00e-7, 150/150/1.29e-7, 150/150/1.03e-7   v033 0.615, 0.581, 0.579
+    Q_c_C1  v034  95/83/0.311,     150/149/0.244,    68/56/0.358     v033 0.450, 0.367, 0.326
+    Q_c_C2  v034  83/71/2.25e-3,   122/110/2.31e-3,  96/84/2.22e-3   v033 2.20e-3, 2.37e-3, 1.93e-3
+    Q_c_C3  v034  67/55/0.425,     75/36/0.433,      70/58/0.434     v033 0.453, 0.445, 0.439
+    Q_c_C4  v034 129/117/1.09e-3,  92/80/1.69e-3,    150/141/1.67e-3 v033 1.02e-3, 1.65e-3, 1.10e-3
+  Whitening (Q_d) lowered the best validation loss by a factor of ~600 (Q_d_a) and ~5e6 (Q_d_b; 5.8 times
+  the float32 floor 1.9e-8 of the exact operator on the float32 b; all three seeds still improving at the
+  150-epoch limit). Holding the learning rate for 50 epochs (all configurations; the only change for Q_c)
+  left the Q_c models where v033 ended (C1 0.30 vs 0.38, C2 2.26e-3 vs 2.17e-3, C3 0.43 vs 0.45, C4
+  1.48e-3 vs 1.26e-3, means over the seeds). Not yet evaluated (test runs, learned stencil).
+
 2026-11-11  v034 stencil CNN (option ii + whitened b patch for the Q_d configurations); training queue
 -----------------------------------------------------------------------------------------------------
 - simulations_v2/v034 stencil CNN.py (new; agreed with the user 2026-11-11: option ii, then option B):
