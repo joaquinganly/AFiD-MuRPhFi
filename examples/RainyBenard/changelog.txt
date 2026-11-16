@@ -5,6 +5,50 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-16  Jacobian, probe and integrated-gradients attribution of the Q_d CNNs (v033 and v034)
+-------------------------------------------------------------------------------------------
+- simulations_v2/diagnostics/jacobian_attribution.py (new; agreed with the user 2026-11-16) and
+  tests/test_jacobian_attribution.py (new). Read-only on the trained models. Every seed of Q_d_a and Q_d_b of
+  v033 and v034, 8 validation-block frames (811, 838, ..., 1000) of the 8 training runs and of the 2 test runs,
+  at the evaluation probe's cells (rows 0 and 1 mod 3, columns 0 mod 3; disjoint 3 x 3 patches):
+  J_pq = dz^2 d psi^_ij / d b_{i+p, j+q} by reverse-mode automatic differentiation (tf.GradientTape; psi^ =
+  Q^_d / kappa for Q_d_a, the output for Q_d_b; exact: L = [0 1 0; 1 -4 1; 0 1 0], wall-row centre -5);
+  D_pq = the evaluation's central-difference probe (EPS = 0.01 in normalised b) at the same cells; integrated
+  gradients (Sundararajan et al. 2017; baseline: the mean patch; 32 midpoint steps) in the Taylor basis of the
+  v034 whitening (x~ = Lambda^(-1/2) V^T (b - bbar)/sigma_b): shares S_k = sum IG~_k^2 / sum_j sum IG~_j^2 and
+  learned fractions r_k = sum IG~_k IG~ex_k / sum IG~ex_k^2 (IG~ex: the exact operator). Control: the exact
+  operator in normalised units through the same code.
+- Test: tmp/jacobian/test_jacobian_attribution_4.log (passes). Logs _1 to _3: _1 failed on a numpy indexing
+  bug in gather_patches (advanced index moved in front by a slice; fixed with a basic-index view), _2 on
+  tf_keras 2.17 seeding under Python 3.12 (test now seeds each initialiser); _3 passed after the independent
+  review's test additions (asymmetric-kernel orientation, also through the v034 whitening layout; disjoint
+  patches for NY = 17, 18, 2048; sigma_b != 1; kappa branch); _4 after a figure-layout change.
+- Run 2026-11-16 10:50-11:16 UTC, 26.4 min, log tmp/jacobian/jacobian_attribution.log (EXIT 0); outputs
+  simulations_v2/v034/jacobian/: summary.txt, jacobian_data.npz and four figures. The figures were redrawn
+  from jacobian_data.npz after a layout fix (tmp/jacobian/replot.py, log tmp/jacobian/replot.log); the first
+  render was moved to v034/jacobian/first_render/.
+- Checks: control max|J - L| 5.3e-8 (interior) and 1.4e-7 (wall rows), completeness 2.4e-5 to 1.2e-4,
+  max|S - S_ex| 2.1e-14; sum_k IG~_k = sum_m IG_m to 7.5e-12. IG completeness error (rms of sum IG - [Psi(b) -
+  Psi(bbar)] over its rms): v034 Q_d_b 8.5e-4 to 4.6e-3, v034 Q_d_a 1.1e-2 to 4.0e-2, v033 4.6e-2 to 2.3e-1
+  (training runs and Ra 8.7e6) and 0.23 to 0.75 (Ra 1.5e8). Step convergence (tmp/jacobian/ig_convergence.py,
+  log tmp/jacobian/ig_convergence.log; Q_d_a seed 42, Ra 1e7 and 1.5e8, frames 811 and 919, M = 32, 128,
+  512): completeness error falls ~1/M; r_k changes < 1 %; S_k converged except v033 at Ra 1.5e8, whose
+  shares of k = 2..9 grow up to 3.8x from M = 32 to 512 (S_1 0.99 -> 0.97).
+- Results (median over cells; ranges over seeds and runs):
+  - v034 Q_d_b: J_00 -3.991 to -4.010 (Ra 1.5e8 seed 43: -4.088), D_00 -3.991 / -4.006 / -3.997 at the same
+    cells; interior mean J over the training runs: centre -3.968 / -3.977 / -4.018, neighbours 0.982-1.011;
+    r_k 0.99-1.00 for the curvature directions k = 4 (d_z^2), 6 (d_y^2), 9 (d_z^2 d_y^2).
+  - v034 Q_d_a: the AD Jacobian is the Laplacian on the data, the probe is not: J_00 -3.41 to -4.12 on the
+    training runs and Ra 8.7e6 (Ra 1.5e8: -3.14, -4.26, -4.97), |sum J| < 1e-4; at the same cells D_00 -1.50 /
+    -1.46 / -1.19 (Ra 1e6) and -4.15 / -3.95 / -4.11 (Ra 1e8), sum D +0.98 / +0.51 / +0.67 (Ra 1e6). The
+    probe's step of 0.01 sigma_b in one cell moves the whitened coordinate x~_9 by 320 (centre) or 170
+    (vertical neighbour) training standard deviations. r_4 0.73-1.1, r_6 0.96-1.1, r_9 0.88-1.2.
+  - v033: interior mean |J_pq| <= 2.7e-3 (Q_d_b) and <= 6e-4 (Q_d_a), J_00 0.000 to 0.001, row p = +1
+    negative and row p = -1 positive (a vertical first difference). Shares: S_1 (patch mean) 0.95-1.00,
+    S_2 (d_z) 1.4e-3 to 5.4e-2, S_4 (d_z^2) 1.2e-7 to 1.5e-4 (exact operator at Ra 1e8: S_1 3.8e-3, S_2 1.8e-2,
+    S_4 0.80, S_6 0.17). Learned fraction r_4: Q_d_a 2.8e-4 (Ra 1e6) to 8.5e-3 (Ra 1e8) on the training runs;
+    Q_d_b -4.5e-4 to 2.4e-3; |r_6|, |r_9| <= 1.3e-3.
+
 2026-11-12  v034 evaluation and CNN-vs-DNS comparison on the test runs
 -----------------------------------------------------------------------
 - simulations_v2/v034 evaluate.py (new) and simulations_v2/diagnostics/v034_dns_vs_cnn.py (new; agreed
