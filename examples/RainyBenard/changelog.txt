@@ -5,6 +5,64 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-17  Template-basis attribution and conditional-mean test of the Q_d CNNs (v033 and v034)
+-----------------------------------------------------------------------------------------
+- simulations_v2/diagnostics/jacobian_attribution.py and tests/test_jacobian_attribution.py ("basis fix",
+  agreed with the user 2026-11-17): the integrated gradients are also decomposed in the exact templates u_ab
+  (IG~_k = a_k g_k, a_k = u_k . (b - bbar), g_k = u_k . Jbar; shares S_T, learned fractions r_T on u20, u02,
+  u22, NaN elsewhere), and the on-data Jacobian is reported in template coordinates J . u_ab (exact: 0 0 0
+  sqrt2 0 sqrt2 0 0 -4). Reason: the whitening eigenvectors equal the templates only to |v . u| >= 0.9985,
+  which gave the exact operator shares on k = 1, 2 in the 2026-11-16 run. Output folder v034/jacobian_2/
+  (v034/jacobian/ untouched); two new figures (Qd_IG_template_shares.png, Qd_IG_template_learned_fraction.png);
+  the share and learned-fraction plots take the basis labels; the probe and learned-fraction figures state that
+  the runs are equally spaced and the markers offset sideways.
+- simulations_v2/diagnostics/conditional_mean_test.py (new; "direct test", agreed 2026-11-17) and
+  tests/test_conditional_mean_test.py (new). Read-only on the trained models. psi = Q_d/kappa = Lap b on the
+  interior cells of all 64 validation-block frames of the 8 training runs; a00 = u00 . x (3 x the patch mean),
+  a10 = u10 . x (vertical difference). Bin means of psi (regressogram, Wasserman 2006, Example 5.24; 48 quantile
+  bins of a00 x 48 quantile bins of a10 within each; fitted on every 4th training-block frame): per run
+  E[psi | a00], E[psi | a00, a10] (Q_d_a's information) and pooled E_w with run weight w_r = 1/<psi^2>_r (the
+  Q_d_b loss weight); row profile. Metrics: e(f) = sqrt(sum (f - psi)^2 / sum psi^2), d(f, g) on the same
+  scale, 1 - eta^2(Y | A) (correlation ratio) for psi and every seed of v033/v034 Q_d_a/Q_d_b; also 24 x 24 bins.
+- Tests: tmp/jacobian/test_jacobian_attribution_5.log and tmp/conditional_mean/test_conditional_mean_test.log
+  (both pass). Independent review (subagent) before the runs: two fixes applied (summary wording of the pooled
+  sample size; psi_from_prediction refuses an unknown target); its memory estimate (~22 GB) was an overcount
+  (about 0.8 GB per run held); its weight and float32 remarks checked, no change needed.
+- Runs 2026-11-17 (one container, in sequence): jacobian_attribution.py 14:28-14:56 UTC, 27.5 min, log
+  tmp/jacobian/jacobian_attribution_2.log (EXIT 0); conditional_mean_test.py 14:56-15:05 UTC, 9.0 min, log
+  tmp/conditional_mean/conditional_mean_test.log (EXIT 0); outputs v034/jacobian_2/ and v034/conditional_mean/
+  (summary.txt, .npz, figures). Template ranges extracted by tmp/jacobian/extract_template.py
+  (log extract_template.log).
+- Results, template basis (8 frames per run; ranges over 3 seeds and the 8 training runs unless stated):
+  - Control: max|J . u - L . u| 5.3e-8, max|S_T - S_T_ex| 2.3e-14. The exact operator's shares are nonzero only
+    on u20, u02, u22: 0.987, 0.013, 1.2e-5 (Ra 1e6); 0.806, 0.186, 8.6e-3 (Ra 1e8). Its d_z and patch-mean
+    shares of 2026-11-16 were the eigenvector tilt.
+  - v034 Q_d_b: J . u20 and J . u02 1.41-1.42, J . u22 -4.04 to -3.92, other |J . u| <= 9.4e-3; S_T on u00,
+    u10, u01 <= 5.5e-6; r_T 0.996-1.000 (test runs 0.999-1.000).
+  - v034 Q_d_a: J . u20 1.36-1.43, J . u02 1.29-1.40, J . u22 -4.20 to -3.36, |J . u00| <= 1.7e-5; yet
+    S_T(u00) 1.2e-3 to 0.13 and S_T(u10) 3.0e-4 to 6.4e-3 (the response along the path from the mean patch,
+    not at the data); r_T 0.70-1.10 (u20), 0.96-1.02 (u02), 0.87-1.09 (u22).
+  - v033: S_T(u00) 0.96-1.00 (Q_d_a), 0.91-0.99 (Q_d_b); S_T(u10) 2.4e-3 to 3.6e-2 (Q_d_a), 5.6e-3 to 9.3e-2
+    (Q_d_b; test runs up to 0.19); curvature templates <= 2.0e-4; J . u10 -2.5e-3 to +2.5e-4 (Q_d_a), -5.6e-3
+    to -2.3e-3 (Q_d_b); r_T(u20) 7.0e-5 to 1.0e-2, |r_T| <= 1.1e-3 on u02 and u22.
+- Results, conditional mean (seed means per run; validation frames):
+  - Estimators: e of the row profile 0.91-0.99; E[psi | a00] 0.74-0.96; E[psi | a00, a10] 0.56-0.89; pooled
+    E_w[psi | a00] 0.82-0.97, E_w[psi | a00, a10] 0.70-0.93. 1 - eta^2(psi | a00) 0.62-0.93, 1 - eta^2(psi |
+    a00, a10) 0.35-0.80. No bin fell below the minimum count.
+  - v034: e 2.6e-4 to 4.8e-4 (Q_d_b), 5.7e-3 to 5.0e-2 (Q_d_a); 1 - eta^2(psi^ | A) equal to psi's to 3 digits.
+  - v033 Q_d_a: e 0.44 (Ra 1e6) to 1.00 (Ra 1e8); below e(E[psi | a00, a10]) up to Ra 2.5e7 (0.44 vs 0.56 at
+    Ra 1e6), above at Ra 5e7 (0.90 vs 0.88) and 1e8 (1.00 vs 0.89); d(psi^, E) 0.52-0.89, the same order as e;
+    1 - eta^2(psi^ | a00, a10) 0.46-0.77.
+  - v033 Q_d_b: e 0.61-0.90, below e(E_w[psi | a00, a10]) 0.70-0.93 in every run; d(psi^, E_w) 0.28-0.52
+    (Ra 1e6: 1.24); 1 - eta^2(psi^ | a00, a10) 0.38-0.77.
+  - 1 - eta^2(psi^_v033 | a00) is below psi's in every run (a00 explains more of v033's output than of psi), but
+    it is 0.46-0.91. With 24 x 24 bins every 1 - eta^2(. | a00, a10) is 1.08-1.50 times the 48 x 48 value: the
+    binned estimates have not converged in bin size.
+  - Reading: at 48 x 48 equal-count bins, v033 is not shown to be E[psi | a00, a10]: its output is about as far
+    from a function of (a00, a10) as psi is. Whether finer bins change this is open (the boundary layers carry
+    most of the variance in few bins).
+
+
 2026-11-16  Jacobian, probe and integrated-gradients attribution of the Q_d CNNs (v033 and v034)
 -------------------------------------------------------------------------------------------
 - simulations_v2/diagnostics/jacobian_attribution.py (new; agreed with the user 2026-11-16) and

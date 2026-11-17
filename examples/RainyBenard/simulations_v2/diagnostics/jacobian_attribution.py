@@ -1,5 +1,6 @@
 """Jacobian, finite-difference probe and Integrated-Gradients attribution of the Q_d CNNs of v033 and
-v034 (agreed with the user, 2026-11-16; changelog.txt). Read-only on the trained models.
+v034 (agreed with the user, 2026-11-16; template basis added 2026-11-17; changelog.txt). Read-only on the
+trained models. The first version (no template basis) wrote simulations_v2/v034/jacobian/ (commit 49d44ab).
 
 Notation. Cell (i, j): row i (height z_i), column j (y_j); offsets p, q in {-1, 0, 1}; patch index
 m = 3 (p + 1) + (q + 1). psi^ is the model's estimate of Lap b: Q^_d / kappa for Q_d_a (inputs b,
@@ -23,12 +24,20 @@ log10 Ra; target Q_d), the output itself for Q_d_b (input b; target Q_d / kappa)
       IG~ex_k = x~_k sigma_b (L V Lambda^(1/2))_k.
   Shares S_k = sum_c (IG~_k)^2 / sum_c sum_j (IG~_j)^2 over the interior cells c of a run.
   Learned fraction r_k = sum_c IG~_k IG~ex_k / sum_c (IG~ex_k)^2 (= (J.v_k) / (L.v_k) for a linear map).
+  Template basis (2026-11-17): the same decomposition in the exact templates u_ab instead of V. In any
+      orthonormal basis W, IG~_k = a_k g_k with a_k = w_k . (b - bbar) (amount of pattern k in the patch)
+      and g_k = w_k . Jbar (the path-averaged slope along it). The eigenvectors equal the templates only to
+      |v . u| >= 0.9985, which gives the exact operator small shares along v_1 and v_2; in the templates
+      L = sqrt2 u_20 + sqrt2 u_02 - 4 u_22 exactly, so the exact shares and r_k live on u_20, u_02, u_22
+      only (r_k = NaN elsewhere). Also the template coordinates of the AD Jacobian, J . u_ab, averaged over
+      the interior cells (exact: 0 0 0 sqrt2 0 sqrt2 0 0 -4).
 Data: N_FRAMES evenly spaced validation-block frames (811..1000, every 3rd) of the 8 training runs
 and of the 2 test runs; every seed of Q_d_a and Q_d_b of v033 and v034; and a control model (the
 exact operator in normalised units: StencilPad + a fixed 3 x 3 convolution) through the same code.
-Output: simulations_v2/v034/jacobian/ (refuses to overwrite): summary.txt, jacobian_data.npz,
-        Qd_jacobian_stencils.png, Qd_jacobian_vs_probe.png, Qd_IG_scale_shares.png,
-        Qd_IG_learned_fraction.png
+Output: simulations_v2/v034/jacobian_2/ (refuses to overwrite): summary.txt, jacobian_data.npz,
+        Qd_jacobian_stencils.png, Qd_jacobian_vs_probe.png, Qd_IG_scale_shares.png and
+        Qd_IG_learned_fraction.png (eigenvector basis), Qd_IG_template_shares.png and
+        Qd_IG_template_learned_fraction.png (template basis)
 Usage : python diagnostics/jacobian_attribution.py   (from simulations_v2/, inside the Docker container)
 """
 import gc
@@ -69,11 +78,14 @@ N_FRAMES = 8                          # validation-block frames per run (evenly 
 M_STEPS = 32                          # midpoint steps of the integrated gradients
 CHUNK = 4                             # frames (or path points) per backward pass
 PCT = (5, 25, 50, 75, 95)
-OUT_DIR = SIM / "v034" / "jacobian"
+OUT_DIR = SIM / "v034" / "jacobian_2"      # first version: v034/jacobian/
 GRAM = (np.array([1.0, 1.0, 1.0]) / math.sqrt(3.0), np.array([-1.0, 0.0, 1.0]) / math.sqrt(2.0),
         np.array([1.0, -2.0, 1.0]) / math.sqrt(6.0))     # orthonormal polynomials of degree 0, 1, 2 on 3 points
 TEMPLATES = {(a, b): np.outer(GRAM[a], GRAM[b]).ravel() for a in range(3) for b in range(3)}
 CURVATURE = ((2, 0), (0, 2), (2, 2))  # templates carrying L = sqrt2 u_20 + sqrt2 u_02 - 4 u_22
+TEMPLATE_ORDER = ((0, 0), (1, 0), (0, 1), (2, 0), (1, 1), (0, 2), (2, 1), (1, 2), (2, 2))
+U = np.stack([TEMPLATES[k] for k in TEMPLATE_ORDER], axis=1)   # columns: the exact templates (orthonormal)
+TEMPLATE_LABELS = [(a, b, 1.0) for a, b in TEMPLATE_ORDER]
 COL = {"v033": "tab:blue", "v034": "tab:red"}
 MK = {"Q_d_a": "o", "Q_d_b": "s"}
 LS = {"Q_d_a": "-", "Q_d_b": ":"}
@@ -130,7 +142,19 @@ def shares(ig):
 
 
 def learned_fraction(ig, ig_ex):
-    return np.sum(ig * ig_ex, axis=0) / np.sum(ig_ex ** 2, axis=0)
+    """r_k; NaN where the exact operator has no component (zero denominator)."""
+    den = np.sum(ig_ex ** 2, axis=0)
+    num = np.sum(ig * ig_ex, axis=0)
+    return np.where(den > 0, num / np.where(den > 0, den, 1.0), np.nan)
+
+
+def pattern_components(dB, Jbar, W):
+    """In the orthonormal basis W (columns): a = dB W, the amount of each pattern in b - bbar, and
+    IG~ = a (Jbar W) for the network and a (L W) for the exact operator (|L.w| < 1e-12 set to 0)."""
+    a = dB @ W
+    lw = L3.ravel() @ W
+    lw[np.abs(lw) < 1e-12] = 0.0
+    return a, a * (Jbar @ W), a * lw[None, :]
 
 
 # ============================================================
@@ -217,7 +241,7 @@ def pct(v):
 def analyse(model, X, ib, scale, sb, xbar_n, basis, ev):
     """All quantities of the docstring for one model on one run's frames X (normalised inputs)."""
     acc = {k: [np.zeros((3, 3)), np.zeros((3, 3)), 0] for k in ("interior", "bottom", "top")}
-    cJ, sJ = [], []
+    cJ, sJ, jT = [], [], []
     for rows, J in jacobian_at_cells(model, X, ib, scale):
         for i, r in enumerate(rows):
             blk = J[:, i].reshape(-1, 3, 3)
@@ -227,6 +251,7 @@ def analyse(model, X, ib, scale, sb, xbar_n, basis, ev):
         inner = (rows >= 1) & (rows <= X.shape[1] - 2)
         blk = J[:, inner].reshape(-1, 3, 3)                 # same cell order as D below
         cJ.append(blk[:, 1, 1]); sJ.append(blk.sum(axis=(1, 2)))
+        jT.append(blk.reshape(-1, 9) @ U)                   # template coordinates of J
     cD, sD = [], []
     Ds = [ev.stencil_response(model, X[f:f + CHUNK], ib, scale) for f in range(0, len(X), CHUNK)]
     for k, (rows, _) in enumerate(Ds[0]):
@@ -247,7 +272,11 @@ def analyse(model, X, ib, scale, sb, xbar_n, basis, ev):
     rms = math.sqrt(float(np.mean(ig["dPsi"] ** 2)))
     resid = igm.sum(axis=1) - ig["dPsi"]
     _, igt, igex = taylor_components(ig["dB"], ig["Jbar"], basis)
+    _, igT, igTex = pattern_components(ig["dB"], ig["Jbar"], U)
+    jT = np.concatenate(jT)
     return {"mean": mean, "std": std, "n": {k: v[2] for k, v in acc.items()},
+            "JT_mean": jT.mean(axis=0), "JT_std": jT.std(axis=0),
+            "S_T": shares(igT), "S_T_ex": shares(igTex), "r_T": learned_fraction(igT, igTex),
             "pct": {"centre_J": pct(cJ), "sum_J": pct(sJ), "centre_D": pct(cD), "sum_D": pct(sD)},
             "mean_abs_JD_centre": float(np.mean(np.abs(cJ - cD))),
             "comp_rms": math.sqrt(float(np.mean(resid ** 2))) / rms, "comp_max": float(np.max(np.abs(resid))) / rms,
@@ -334,8 +363,11 @@ def summary_text(res, control, basis, runs, frames_info):
         L.append(f"  {label:<15} max|J - L| interior {np.nanmax(np.abs(c['mean']['interior'] - L3)):.1e}, "
                  f"bottom {np.nanmax(np.abs(c['mean']['bottom'] - EXACT['bottom'])):.1e}, "
                  f"top {np.nanmax(np.abs(c['mean']['top'] - EXACT['top'])):.1e}; completeness rms {c['comp_rms']:.1e}; "
-                 f"max|S - S_ex| {np.max(np.abs(c['S'] - c['S_ex'])):.1e}")
+                 f"max|S - S_ex| {np.max(np.abs(c['S'] - c['S_ex'])):.1e}; max|J.u - L.u| "
+                 f"{np.max(np.abs(c['JT_mean'] - L3.ravel() @ U)):.1e}; max|S_T - S_T_ex| "
+                 f"{np.max(np.abs(c['S_T'] - c['S_T_ex'])):.1e}")
     kc = [k for k, (a, b, _) in enumerate(basis["labels"]) if (a, b) in CURVATURE]
+    kT = [TEMPLATE_ORDER.index(c) for c in CURVATURE]
     for v in VERSIONS:
         for n in QD:
             for s in seeds_of(res, v, n):
@@ -363,6 +395,16 @@ def summary_text(res, control, basis, runs, frames_info):
                     r = res[(v, n, s, l)]
                     L.append(f"  {l:<15} " + " ".join(f"{x:8.1e}" for x in r["S"]))
                 L.append(f"  {'exact (Ra 1e8)':<15} " + " ".join(f"{x:8.1e}" for x in res[(v, n, s, 'Ra_1e8_Pr_1')]["S_ex"]))
+                L.append("  template basis (columns u00 u10 u01 u20 u11 u02 u21 u12 u22): mean J.u_ab over interior cells "
+                         "(exact 0 0 0 +1.414 0 +1.414 0 0 -4)")
+                for l in labels:
+                    L.append(f"  {l:<15} " + " ".join(f"{x:+8.4f}" for x in res[(v, n, s, l)]["JT_mean"]))
+                L.append("  template shares S_T (same columns; last row: exact operator) and r_T for u20, u02, u22")
+                for l in labels:
+                    r = res[(v, n, s, l)]
+                    L.append(f"  {l:<15} " + " ".join(f"{x:8.1e}" for x in r["S_T"]) + "   r_T "
+                             + " ".join(f"{r['r_T'][k]:+8.2e}" for k in kT))
+                L.append(f"  {'exact (Ra 1e8)':<15} " + " ".join(f"{x:8.1e}" for x in res[(v, n, s, 'Ra_1e8_Pr_1')]["S_T_ex"]))
     worst = max(r["comp_rms"] for r in res.values())
     L += ["", f"Largest completeness rms error over all models and runs: {worst:.1e}",
           f"Largest basis check (sum_k IG~_k vs sum_m IG_m) : {max(r['basis_check'] for r in res.values()):.1e}"]
@@ -370,7 +412,8 @@ def summary_text(res, control, basis, runs, frames_info):
 
 
 def save_data(res, control, basis, runs, path):
-    d = {"V": basis["V"], "lambda": basis["lam"], "bbar": basis["bbar"],
+    d = {"V": basis["V"], "lambda": basis["lam"], "bbar": basis["bbar"], "U": U,
+         "template_order": np.array(TEMPLATE_ORDER),
          "templates": np.array([[a, b] for a, b, _ in basis["labels"]]), "percentiles": np.array(PCT)}
     for key, r in list(res.items()) + [(("control", "Q_d_b", 0, l), c) for l, c in control.items()]:
         tag = "__".join(str(x) for x in key)
@@ -379,7 +422,7 @@ def save_data(res, control, basis, runs, path):
             d[f"{tag}__std_{kind}"] = r["std"][kind]
         for k, v in r["pct"].items():
             d[f"{tag}__pct_{k}"] = v
-        for k in ("S", "S_ex", "r"):
+        for k in ("S", "S_ex", "r", "S_T", "S_T_ex", "r_T", "JT_mean", "JT_std"):
             d[f"{tag}__{k}"] = r[k]
         d[f"{tag}__completeness_rms"] = np.array(r["comp_rms"])
     np.savez_compressed(path, **d)
@@ -463,27 +506,29 @@ def plot_vs_probe(res, runs, path):
                Line2D([], [], color="0.3", lw=1.0, label=r"$[\min_s P_5,\ \max_s P_{95}]$"),
                Patch(color=COL["v033"], label="v033"), Patch(color=COL["v034"], label="v034"),
                Line2D([], [], color="k", ls=":", label=r"$\Delta z^2\nabla_h^2$"),
-               Patch(color="0.92", label=r"$\dagger\ \mathrm{test}$")]
-    fig.legend(handles=handles, loc="outside lower center", ncol=7, fontsize=10)
+               Patch(color="0.92", label=r"$\dagger\ \mathrm{test}$"),
+               Line2D([], [], ls="", label="runs equally spaced; markers offset sideways within a run")]
+    fig.legend(handles=handles, loc="outside lower center", ncol=4, fontsize=10)
     fig.suptitle(r"$P_{50}$ over cells $(i,j)$, one marker per seed $s$", fontsize=12)
     fig.savefig(path, dpi=200)
     plt.close(fig)
 
 
-def plot_shares(res, runs, basis, path):
+def plot_shares(res, runs, basis_labels, path, key="S", title=None):
     labels = sorted(runs, key=lambda l: runs[l]["ra"])
     k = np.arange(1, 10)
-    ticks = [template_tex(a, b) for a, b, _ in basis["labels"]]
+    ticks = [template_tex(a, b) for a, b, _ in basis_labels]
     ncol = 5
     nrow = math.ceil(len(labels) / ncol)
     fig, axes = plt.subplots(nrow, ncol, figsize=(4.8 * ncol, 4.0 * nrow + 1.2), sharey=True, squeeze=False,
                              layout="constrained")
     for ax, l in zip(axes.ravel(), labels):
-        ex = np.mean([res[(v, n, s, l)]["S_ex"] for v in VERSIONS for n in QD for s in seeds_of(res, v, n)], axis=0)
+        ex = np.mean([res[(v, n, s, l)][key + "_ex"] for v in VERSIONS for n in QD for s in seeds_of(res, v, n)], axis=0)
+        ex = np.where(ex > 0, ex, np.nan)                 # exact zeros (template basis) are not drawn
         ax.plot(k, ex, color="k", lw=2.4, ls="--", marker="D", ms=5, zorder=5)
         for v in VERSIONS:
             for n in QD:
-                S = np.mean([res[(v, n, s, l)]["S"] for s in seeds_of(res, v, n)], axis=0)
+                S = np.mean([res[(v, n, s, l)][key] for s in seeds_of(res, v, n)], axis=0)
                 ax.plot(k, S, color=COL[v], ls=LS[n], marker=MK[n], ms=4.5, lw=1.4)
         ax.set_yscale("log")
         ax.set_ylim(1e-9, 2.0)
@@ -498,7 +543,7 @@ def plot_shares(res, runs, basis, path):
     handles += [Line2D([], [], color=COL[v], ls=LS[n], marker=MK[n], label=f"{v}: " + MODEL_TEX[n])
                 for v in VERSIONS for n in QD]
     fig.legend(handles=handles, loc="outside lower center", ncol=5, fontsize=10)
-    fig.suptitle(r"$S_k=\frac{\sum_c(\widetilde{\mathrm{IG}}_k)^2}{\sum_c\sum_j(\widetilde{\mathrm{IG}}_j)^2},\quad"
+    fig.suptitle(title or r"$S_k=\frac{\sum_c(\widetilde{\mathrm{IG}}_k)^2}{\sum_c\sum_j(\widetilde{\mathrm{IG}}_j)^2},\quad"
                  r"\widetilde{\mathrm{IG}}_k=\tilde x_k\int_0^1\frac{\partial\Psi}{\partial\tilde x_k}"
                  r"\left(\bar x+\alpha(x-\bar x)\right)d\alpha,\quad \tilde x=\Lambda^{-1/2}V^{\top}(x-\bar x),"
                  r"\quad\Psi=\Delta z^2\hat\psi$", fontsize=12)
@@ -506,10 +551,17 @@ def plot_shares(res, runs, basis, path):
     plt.close(fig)
 
 
-def plot_learned_fraction(res, runs, basis, path):
+TEMPLATE_SHARES_TEX = (r"$S_k=\frac{\sum_c(a_kg_k)^2}{\sum_c\sum_j(a_jg_j)^2},\quad a_k=\mathbf{u}_k\cdot(\mathbf{x}-\bar{\mathbf{x}}),"
+                       r"\quad g_k=\mathbf{u}_k\cdot\int_0^1\nabla\Psi\left(\bar{\mathbf{x}}+\alpha(\mathbf{x}-\bar{\mathbf{x}})\right)d\alpha,"
+                       r"\quad\Psi=\Delta z^2\hat\psi$")
+TEMPLATE_FRACTION_TEX = (r"$r_k=\frac{\sum_c a_k^2\,g_k\,g_k^{\nabla^2}}{\sum_c a_k^2\,(g_k^{\nabla^2})^2}"
+                         r",\quad g^{\nabla^2}=(\sqrt{2},\sqrt{2},-4)$ on $(\mathbf{u}_{20},\mathbf{u}_{02},\mathbf{u}_{22})$, one marker per seed")
+
+
+def plot_learned_fraction(res, runs, basis_labels, path, key="r", title=None):
     labels = sorted(runs, key=lambda l: runs[l]["ra"])
     xs = np.arange(len(labels))
-    kc = [k for k, (a, b, _) in enumerate(basis["labels"]) if (a, b) in CURVATURE]
+    kc = [k for k, (a, b, _) in enumerate(basis_labels) if (a, b) in CURVATURE]
     fig, axes = plt.subplots(1, len(kc), figsize=(5.6 * len(kc), 5.2), sharey=True, squeeze=False, layout="constrained")
     offs = {("v033", "Q_d_a"): -0.27, ("v033", "Q_d_b"): -0.09, ("v034", "Q_d_a"): 0.09, ("v034", "Q_d_b"): 0.27}
     for ax, k in zip(axes[0], kc):
@@ -519,12 +571,12 @@ def plot_learned_fraction(res, runs, basis, path):
         ax.axhline(1.0, color="k", ls=":", lw=1.2)
         for (v, n), o in offs.items():
             for s in seeds_of(res, v, n):
-                r = np.array([res[(v, n, s, l)]["r"][k] for l in labels])
+                r = np.array([res[(v, n, s, l)][key][k] for l in labels])
                 pos = r > 0
                 ax.plot(xs[pos] + o, r[pos], MK[n], color=COL[v], ms=5)
                 ax.plot(xs[~pos] + o, -r[~pos], MK[n], color=COL[v], ms=5, mfc="none")
         ax.set_yscale("log")
-        a, b, _ = basis["labels"][k]
+        a, b, _ = basis_labels[k]
         ax.set_title(rf"$k={k + 1}$: " + template_tex(a, b), fontsize=12)
         ax.set_xticks(xs, [ra_tex(l, runs[l]["ra"]).replace(r"\mathrm{Ra}=", "") for l in labels], rotation=45, fontsize=9)
         ax.set_xlabel(r"$\mathrm{Ra}$", fontsize=12)
@@ -534,9 +586,10 @@ def plot_learned_fraction(res, runs, basis, path):
                for v in VERSIONS for n in QD]
     handles += [Line2D([], [], marker="o", ls="", color="0.3", label=r"$r_k>0$"),
                 Line2D([], [], marker="o", ls="", color="0.3", mfc="none", label=r"$r_k<0$"),
-                Line2D([], [], color="k", ls=":", label=r"$r_k=1$"), Patch(color="0.92", label=r"$\dagger\ \mathrm{test}$")]
+                Line2D([], [], color="k", ls=":", label=r"$r_k=1$"), Patch(color="0.92", label=r"$\dagger\ \mathrm{test}$"),
+                Line2D([], [], ls="", label="runs equally spaced; markers offset sideways within a run")]
     fig.legend(handles=handles, loc="outside lower center", ncol=4, fontsize=10)
-    fig.suptitle(r"$r_k=\frac{\sum_c\widetilde{\mathrm{IG}}_k\,\widetilde{\mathrm{IG}}{}^{\nabla^2}_k}"
+    fig.suptitle(title or r"$r_k=\frac{\sum_c\widetilde{\mathrm{IG}}_k\,\widetilde{\mathrm{IG}}{}^{\nabla^2}_k}"
                  r"{\sum_c(\widetilde{\mathrm{IG}}{}^{\nabla^2}_k)^2}$, one marker per seed", fontsize=13)
     fig.savefig(path, dpi=200)
     plt.close(fig)
@@ -594,8 +647,11 @@ def main():
     show = ("Ra_1e6_Pr_1", "Ra_1e7_Pr_1", "Ra_1e8_Pr_1", "Ra_8.7e6_Pr_1", "Ra_1.5e8_Pr_1")
     plot_stencils(res, runs, show, OUT_DIR / "Qd_jacobian_stencils.png")
     plot_vs_probe(res, runs, OUT_DIR / "Qd_jacobian_vs_probe.png")
-    plot_shares(res, runs, basis, OUT_DIR / "Qd_IG_scale_shares.png")
-    plot_learned_fraction(res, runs, basis, OUT_DIR / "Qd_IG_learned_fraction.png")
+    plot_shares(res, runs, basis["labels"], OUT_DIR / "Qd_IG_scale_shares.png")
+    plot_learned_fraction(res, runs, basis["labels"], OUT_DIR / "Qd_IG_learned_fraction.png")
+    plot_shares(res, runs, TEMPLATE_LABELS, OUT_DIR / "Qd_IG_template_shares.png", key="S_T", title=TEMPLATE_SHARES_TEX)
+    plot_learned_fraction(res, runs, TEMPLATE_LABELS, OUT_DIR / "Qd_IG_template_learned_fraction.png", key="r_T",
+                          title=TEMPLATE_FRACTION_TEX)
     elapsed = time.time() - t_start
     print(f"Elapsed: {elapsed:.1f} s ({elapsed / 60:.1f} min)")
     return res, control

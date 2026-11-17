@@ -9,13 +9,16 @@ On small grids and hand-built models:
  3. integrated gradients: for the linear model Jbar = L at every interior cell, dB = b - bbar (computed
     independently), completeness to round-off, with a step count not divisible by the chunk size;
     for the nonlinear model completeness within 1e-2 (rms, relative) at 256 steps;
- 4. Taylor basis: V orthonormal and equal (up to column signs) to the eigenvectors behind W =
+ 4. Template basis (2026-11-17): U orthonormal, L = (0,0,0,sqrt2,0,sqrt2,0,0,-4) in it; pattern_components
+    sums to sum_m IG_m and equals taylor_components in the eigenvector basis; the exact operator gives
+    r_T = 1 on u20, u02, u22, NaN elsewhere, and zero shares off them.
+    Taylor basis: V orthonormal and equal (up to column signs) to the eigenvectors behind W =
     Lambda^(-1/2) V^T; x~ = W (b - bbar)/sigma up to sign; sum_k IG~_k = sum_m IG_m; the exact
     operator gives IG~ = IG~ex and r_k = 1; any linear map K gives r_k = (K.v_k)/(L.v_k); shares sum
     to 1; each Gram template is matched to itself;
  5. exact_model + scale_of in normalised units: denormalised prediction = numpy Laplacian with the
     wall ghosts; analyse() end to end gives J = L, completeness ~ 0, S = S_ex, r = 1;
- 6. summary_text, save_data and the four figures run (mathtext renders).
+ 6. summary_text, save_data and the six figures run (mathtext renders).
 Usage (from simulations_v2/): python tests/test_jacobian_attribution.py diagnostics/jacobian_attribution.py
 """
 import os
@@ -160,7 +163,18 @@ assert np.allclose(ja.learned_fraction(igK, igKex), (K @ B["V"]) / (ja.L3.ravel(
 for key, u in ja.TEMPLATES.items():
     a, b, d = ja.template_match(u)
     assert (a, b) == key and abs(d - 1.0) < 1e-12
-print("4. Taylor basis, IG~ identities, learned fraction, template matching: OK")
+UT = ja.U
+assert np.allclose(UT.T @ UT, np.eye(9))
+assert np.allclose(ja.L3.ravel() @ UT, [0, 0, 0, math.sqrt(2), 0, math.sqrt(2), 0, 0, -4])
+aT, igT, igTex = ja.pattern_components(dB, Jb, UT)
+assert np.allclose(aT, dB @ UT) and np.allclose(igT.sum(1), (dB * Jb).sum(1))
+assert np.allclose(ja.pattern_components(dB, Jb, B["V"])[1], igt)
+_, igLT, igLTex = ja.pattern_components(dB, np.tile(ja.L3.ravel(), (50, 1)), UT)
+kT = [ja.TEMPLATE_ORDER.index(c) for c in ja.CURVATURE]
+off = np.setdiff1d(np.arange(9), kT)
+rT = ja.learned_fraction(igLT, igLTex)
+assert np.allclose(rT[kT], 1.0) and np.all(np.isnan(rT[off])) and np.all(ja.shares(igLTex)[off] == 0.0)
+print("4. Taylor and template bases, IG~ identities, learned fraction, template matching: OK")
 
 # ---------- 5. control model and analyse() end to end ----------
 T.NZ, T.NY = NZ, NY
@@ -188,6 +202,8 @@ for kind in ("bottom", "top"):
 assert r["comp_rms"] < 1e-5 and r["basis_check"] < 1e-6, (r["comp_rms"], r["basis_check"])
 assert np.allclose(r["S"], r["S_ex"], atol=1e-6) and np.allclose(r["r"], 1.0, atol=1e-4)
 assert abs(r["pct"]["centre_J"][2] + 4.0) < 1e-4 and abs(r["pct"]["centre_D"][2] + 4.0) < 1e-3
+assert np.allclose(r["JT_mean"], ja.L3.ravel() @ ja.U, atol=1e-4) and np.allclose(r["S_T"], r["S_T_ex"], atol=1e-6)
+assert np.allclose(r["r_T"][kT], 1.0, atol=1e-4) and np.all(np.isnan(r["r_T"][off]))
 print("5. exact model in normalised units = Laplacian with wall ghosts; analyse(): J = L, completeness, "
       "S = S_ex, r = 1: OK")
 
@@ -209,10 +225,13 @@ with tempfile.TemporaryDirectory() as tmp:
     with np.load(tmp / "d.npz") as d:
         assert np.allclose(d["v034__Q_d_b__42__Ra_1e8_Pr_1__mean_interior"], r["mean"]["interior"] + 1.0)
         assert np.allclose(d["v033__Q_d_b__42__Ra_1e8_Pr_1__mean_interior"], r["mean"]["interior"])
+        assert np.allclose(d["v033__Q_d_b__42__Ra_1e8_Pr_1__S_T"], r["S_T"]) and d["U"].shape == (9, 9)
     ja.plot_stencils(res, runs, ("Ra_1e6_Pr_1", "Ra_1e8_Pr_1", "Ra_1.5e8_Pr_1"), tmp / "a.png")
     ja.plot_vs_probe(res, runs, tmp / "b.png")
-    ja.plot_shares(res, runs, Bf, tmp / "c.png")
-    ja.plot_learned_fraction(res, runs, Bf, tmp / "e.png")
-    assert all((tmp / f).stat().st_size > 10_000 for f in ("a.png", "b.png", "c.png", "e.png"))
-print("6. summary, data file and the four figures: OK")
+    ja.plot_shares(res, runs, Bf["labels"], tmp / "c.png")
+    ja.plot_learned_fraction(res, runs, Bf["labels"], tmp / "e.png")
+    ja.plot_shares(res, runs, ja.TEMPLATE_LABELS, tmp / "f.png", key="S_T", title=ja.TEMPLATE_SHARES_TEX)
+    ja.plot_learned_fraction(res, runs, ja.TEMPLATE_LABELS, tmp / "g.png", key="r_T", title=ja.TEMPLATE_FRACTION_TEX)
+    assert all((tmp / f).stat().st_size > 10_000 for f in ("a.png", "b.png", "c.png", "e.png", "f.png", "g.png"))
+print("6. summary, data file and the six figures: OK")
 print("ALL JACOBIAN-ATTRIBUTION TESTS PASSED")
