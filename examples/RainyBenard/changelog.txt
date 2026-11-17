@@ -59,8 +59,8 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
     it is 0.46-0.91. With 24 x 24 bins every 1 - eta^2(. | a00, a10) is 1.08-1.50 times the 48 x 48 value: the
     binned estimates have not converged in bin size.
   - Reading: at 48 x 48 equal-count bins, v033 is not shown to be E[psi | a00, a10]: its output is about as far
-    from a function of (a00, a10) as psi is. Whether finer bins change this is open (the boundary layers carry
-    most of the variance in few bins).
+    from a function of (a00, a10) as psi is. Whether finer bins change this is open (a possible cause, not
+    checked: the equal-count bins are coarse where psi varies most, near the walls).
 
 
 2026-11-16  Jacobian, probe and integrated-gradients attribution of the Q_d CNNs (v033 and v034)
