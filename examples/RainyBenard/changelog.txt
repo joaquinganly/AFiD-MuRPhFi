@@ -5,6 +5,42 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-18  XAI attribution of the stencil CNNs: GradSHAP, integrated gradients, exact Shapley values, ablation
+-------------------------------------------------------------------------------------------------------------
+- New simulations_v2/diagnostics/xai_attribution.py and tests/test_xai_attribution.py (agreed with the user
+  2026-11-18: GradSHAP and ablation on every model, exact Shapley values over the 9 operator templates and over the
+  input channels, no noise, ablation read as the error against the DNS, own TensorFlow code). GradSHAP references
+  are patches of the same run (pooled references dropped by the user to keep everything comparable with the IG of
+  jacobian_attribution.py); the effect of log10 Ra is read from the channel level instead. Read-only on the models;
+  same cells and frames as v034/jacobian_2, whose functions are reused.
+- Level 2, which operator inside b (Q_d models): IG (as jacobian_2), GradSHAP = expected gradients (Erion et al.
+  2021; K = 8 references per cell from the run's training block, 32 midpoint steps each), exact Shapley values over
+  the 9 templates (Shapley 1953; 512 subsets, reference bbar), template ablation e_-k. Level 1, which input channel
+  (every configuration): exact Shapley values over the channels (reference: each channel's mean training patch)
+  and channel ablation e_-ch. Q_c models: IG and GradSHAP as 3 x 3 maps per channel. Controls through the same
+  code: exact operator (Q_d_b; Q_d_a with kappa = (Ra Pr)^(-1/2) from the log10 Ra input) and exact Q_c (C1, C2,
+  C4), checked against analytic credits.
+- Reference pool = the whitening cells of the v034 training script (same generator, seed and draws; the pooled
+  mean b patch equals bbar to 1.4e-8 in the run).
+- The networks are evaluated on 3 x 3 patches (padding dropped; exact at interior cells because the receptive field
+  is 3 x 3): pilot v033 Q_d_a seed 42 Ra 1e8, K = 16, 277 s per model and run on full frames vs 121 s on patches,
+  identical shares (tmp/xai/pilot_v033_Qd_a_k16.log, pilot_v033_Qd_a_k16_patches.log); K = 8 vs 16: largest share
+  difference 5.5e-4. Every model and run is checked against the full-frame prediction (max) and the lattice
+  gradient (rms); the run stops above 1e-3. The first full run stopped at its first model (tmp/xai/xai_qd.log) with a
+  max-based gradient check of 1.1e-2 while the predictions agreed to 7e-5. Hypothesis (not checked cell by cell):
+  ReLU pre-activations within round-off of zero flip between the two evaluations; the gradient check is now
+  rms-based (2e-5 on the same model).
+- Checkpoints (tmp/xai/xai_<part>_checkpoint.pkl) and a time budget (--hours, exit code 3, resume with the same
+  command), because docker_run allows at most 4 h per call.
+- Independent reviews (2 subagents, before the runs): a test that could pass vacuously (exact float comparison
+  of the template coordinates of L) and loose tolerances fixed; for the patch evaluation, a checked layer chain,
+  one patch model per loaded model, batch splitting exercised in the test, and the patch/gradient checks made to
+  stop the run.
+- Tests: tmp/xai/test_xai_attribution_5.log (passes).
+- Runs (started 2026-11-18 23:10 and 23:17 UTC, in parallel): tmp/xai/xai_qd_2.log, tmp/xai/xai_qc.log; outputs
+  simulations_v2/v034/xai/.
+
+
 2026-11-18  Conditional-mean test: exact bound e*, bin refinement (48, 96, 192 bins), figure clean-up
 ------------------------------------------------------------------------------------------------
 - simulations_v2/diagnostics/conditional_mean_test.py and tests/test_conditional_mean_test.py (agreed with the user
