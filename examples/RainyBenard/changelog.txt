@@ -5,6 +5,18 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-18  CLAUDE.md: two working rules (approved by the user 2026-11-18)
+-------------------------------------------------------------------
+- CLAUDE.md section 4: the folders that docker_run creates in /workspace/tmp are owned by root too, and
+  project_write is refused there; write helper files there through docker_run (e.g. a shell here-document).
+  Why: on 2026-11-17 project_write to tmp/jacobian/ failed with "Permission denied". (Proposed as "chown the
+  output and log directories after each Docker job"; reworded because section 4 already covers chown outside
+  tmp/ and tmp/ is meant to stay root-owned.)
+- CLAUDE.md section 12: verified results, interpretations and hypotheses are separated in chat, the changelog
+  and the handover alike, and every causal explanation not checked against the data is labelled as a
+  hypothesis. Why: the 2026-11-17 changelog entry stated an unchecked cause as fact (corrected in 5a8cf1e).
+
+
 2026-11-17  Template-basis attribution and conditional-mean test of the Q_d CNNs (v033 and v034)
 -----------------------------------------------------------------------------------------
 - simulations_v2/diagnostics/jacobian_attribution.py and tests/test_jacobian_attribution.py ("basis fix",

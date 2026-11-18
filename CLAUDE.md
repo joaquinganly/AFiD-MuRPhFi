@@ -109,7 +109,7 @@ explicitly requested.
 
 - afid runs natively in WSL, not in Docker (the image has no FFTW and a different MPI build). Claude prepares run folders and launch scripts; the user launches the runs (e.g. `simulations_v2/run_queue.sh`).
 - Tests are plain Python scripts, run as `python <test>.py`; pytest is not installed in `my-tf-env`.
-- `/workspace/tmp` is owned by root: write helper files there through `docker_run`. Files and folders that `docker_run` creates elsewhere in the repository are owned by root too; Claude runs `chown -R --reference=<parent folder> <path>` on them (through `docker_run`) before the user needs to write there from WSL.
+- `/workspace/tmp`, and the folders that `docker_run` creates in it, are created owned by root: write helper files there through `docker_run` (e.g. a shell here-document), not `project_write`, which is refused in root-owned folders (2026-11-17). Files and folders that `docker_run` creates elsewhere in the repository are owned by root too; Claude runs `chown -R --reference=<parent folder> <path>` on them (through `docker_run`) before the user needs to write there from WSL.
 - On Ampere and newer NVIDIA GPUs (including this machine's), TensorFlow runs float32 matrix multiplications and convolutions in TF32 by default (10-bit mantissa). Any script that claims float32 must call `tf.config.experimental.enable_tensor_float_32_execution(False)`.
 - Pass per-sample loss weights as an extra target channel, not as Keras `sample_weight`: Keras documents `sample_weight` only per sample (1D) or per timestep (2D), and with the image-shaped losses here its handling differed between tf_keras 2.17 (failed) and Keras 3 (needed the loss's exact shape) in the v032 work.
 
@@ -247,7 +247,7 @@ The user has a background in theoretical physics and computational fluid dynamic
 - Explain computational decisions and their consequences.
 - Use equations and technical terminology where appropriate.
 - Cite sources when presenting scientific or technical recommendations.
-- Clearly separate verified results, interpretations and hypotheses.
+- Clearly separate verified results, interpretations and hypotheses, in chat, the changelog and the handover alike: label every causal explanation that has not been checked against the data as a hypothesis (not checked against the data).
 - Be direct and critical. Do not agree with an idea simply to be agreeable.
 - Show the mathematics explicitly. Before giving any number, define it: the formula, every symbol, its units or normalisation, and the set it is computed over (which runs, frames, cells, seeds, checkpoint). Never describe a computed quantity in words only.
 - When referring to a figure, say which panel shows which quantity and how to read it: what each axis is (with its formula) and what every line, marker and reference line means.
