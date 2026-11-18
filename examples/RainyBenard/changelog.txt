@@ -5,6 +5,20 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-18  CLAUDE.md section 12: defining symbols in every message; reference lines in figures (approved 12:10)
+------------------------------------------------------------------------------------------------
+- New bullet: in every message that states a formula or a computed quantity, define each symbol at its first use
+  in that message (even if defined in an earlier message, a script or a document); always write the formula
+  out, and justify it (a derivation of about five lines at most, else words with a citation); where defined,
+  give its value in the reference cases.
+- Figures bullet: every reference line is the prediction of a stated hypothesis (e.g. y = x for a perfect
+  prediction) or a stated bound, and the legend says which.
+- Independent review (subagent): wording narrowed to messages that state formulas, formula always written out,
+  "where defined" added, example added.
+- Why: the 2026-11-17 report used E[psi | A], f, A and e(f) without defining them in the message, and the
+  y = x line of Qd_conditional_mean_distance.png is predicted by no hypothesis.
+
+
 2026-11-18  CLAUDE.md: two working rules (approved by the user 2026-11-18)
 -------------------------------------------------------------------
 - CLAUDE.md section 4: the folders that docker_run creates in /workspace/tmp are owned by root too, and
