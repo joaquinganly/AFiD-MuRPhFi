@@ -5,6 +5,45 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-18  Conditional-mean test: exact bound e*, bin refinement (48, 96, 192 bins), figure clean-up
+------------------------------------------------------------------------------------------------
+- simulations_v2/diagnostics/conditional_mean_test.py and tests/test_conditional_mean_test.py (agreed with the user
+  2026-11-18): --nb N (bins per coordinate; output v034/conditional_mean_nb<N>/; int32 bin indices); --compare DIR ...
+  (v034/conditional_mean_convergence/: summary.txt, Qd_bin_convergence_eta.png, Qd_bin_convergence_bound.png). New
+  reference e*(A) = e of the bin means of psi over the validation cells themselves, the smallest error of any
+  prediction constant on the bins (sum-of-squares partition), and R* = e(psi^) / e*(A). Qd_conditional_mean_bound.png
+  (linear axis) replaces Qd_conditional_mean_distance.png, whose y = x line was predicted by no hypothesis;
+  Qd_correlation_ratio.png on a linear axis; Ra stored in the data file; load_results().
+- Independent review (subagent) before the runs: the first draft used the training-fitted estimators (and, for Q_d_b,
+  the pooled E_w) as the bound; neither bounds a run's error on the validation cells, hence e*. Also applied: the bound
+  is stated for bin-constant predictions only; a title's mathtext; argument checks; --replot and a bou.in fallback
+  removed as not needed.
+- Deleted at the user's request ("clean out any .png of things that were wrong or corrected"): v034/jacobian/*.png and
+  v034/jacobian/first_render/*.png (superseded by v034/jacobian_2/; first_render/ removed);
+  v034/jacobian_2/Qd_IG_scale_shares.png and Qd_IG_learned_fraction.png (eigenvector basis: the exact operator's
+  patch-mean and d_z shares there were the basis tilt; superseded by the template-basis figures);
+  v034/conditional_mean/Qd_conditional_mean_distance.png and Qd_correlation_ratio.png (log axis). Summaries and data
+  files kept.
+- Test: tmp/conditional_mean/test_conditional_mean_test_2.log (passes).
+- Runs 2026-11-18, one container in sequence: --nb 48 17:28-17:37 UTC (8.2 min; reproduces the 2026-11-17 values),
+  --nb 96 (9.1 min), --nb 192 (9.8 min), --compare; logs tmp/conditional_mean/conditional_mean_nb48.log, _nb96.log,
+  _nb192.log, convergence.log (all EXIT 0). Values shared between files (1 - eta^2 and e* at a shared bin count,
+  e(psi^)) agree exactly (98 comparisons).
+- Results (seed means; validation frames of the 8 training runs):
+  - 1 - eta^2(psi | a00, a10) falls as the bins shrink: 0.52, 0.35, 0.19, 0.061 at 24, 48, 96, 192 bins per
+    coordinate (Ra 1e6); 0.87, 0.80, 0.75, 0.69 (Ra 1e8).
+  - v033: 1 - eta^2(psi^ | a00, a10) at 192 bins 0.12 (Q_d_a) and 0.095 (Q_d_b) at Ra 1e6, 0.59 and 0.60 at Ra 1e8.
+    As a fraction of psi's value, for Ra >= 7.5e6: 0.98-0.99 (Q_d_a) and 0.90-0.99 (Q_d_b) at 24 bins, 0.73-0.89 and
+    0.65-0.92 at 192 bins; at Ra 1e6 above psi's (1.95 and 1.55 times at 192 bins).
+  - R*_ab = e(psi^) / e*(a00, a10): v033 0.62-1.08 (Q_d_a) and 0.79-1.20 (Q_d_b) at 24 bins, 1.02-1.90 and 1.05-3.48
+    at 192 bins; v034 2.9e-4 to 6.1e-2 at every bin count.
+  - Reading: v033 is not constant on the 24 x 24 and 48 x 48 bins (R* < 1 in most runs), but at 192 x 192 the best
+    bin-constant prediction beats it in every run, and the in-sample 1 - eta^2 of every quantity, psi included, keeps
+    falling. The binned test therefore does not decide whether v033 is a function of (a00, a10). Hypothesis (not
+    checked): in the nearly steady low-Ra runs, fine bins of (a00, a10) single out positions in the domain, so that
+    any field looks like a function of them.
+
+
 2026-11-18  CLAUDE.md section 12: say where each quantity comes from (approved 17:15)
 ------------------------------------------------------------------------------
 - New bullet: when stating a quantity, say where it comes from: DNS data; computed from DNS data only; model

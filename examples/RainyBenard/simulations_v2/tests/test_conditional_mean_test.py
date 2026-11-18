@@ -13,6 +13,10 @@
     d = 0 and 1 - eta^2(psi^ | a00, a10) = 0; pooled weights as 3;
  6. psi_from_prediction (target Q_d: / kappa; target Q_d / kappa: not); summary_text, save_data and the
     three figures run (mathtext renders).
+ 7. (2026-11-18) load_results returns what save_data wrote; e* (the error of the bin means of psi over the same
+    cells) is computed as such and bounds every bin-constant prediction from below; convergence() over two bin
+    counts of the same data: a shared bin count gives identical 1 - eta^2 and e*, the summary and both figures
+    are written; main's argument parsing.
 Usage (from simulations_v2/): python tests/test_conditional_mean_test.py diagnostics/conditional_mean_test.py
 """
 import os
@@ -152,11 +156,68 @@ with tempfile.TemporaryDirectory() as tmp:
         assert float(d["v034__Q_d_b__42__Ra_1e6_Pr_1__e"]) == 0.0
         assert math.isclose(float(d["Ra_1e6_Pr_1__e_w_ab"]), est_m["Ra_1e6_Pr_1"]["e"]["w_ab"])
     cm.plot_errors(est_m, res, runs, tmp / "a.png")
-    cm.plot_distance({l: {**e_, "e": {k: max(x, 1e-6) for k, x in e_["e"].items()}} for l, e_ in est_m.items()},
-                     {k: {**q, "e": max(q["e"], 1e-6), "d": {kk: max(x, 1e-6) for kk, x in q["d"].items()}}
-                      for k, q in res.items()}, runs, tmp / "b.png")
+    cm.plot_bound(est_m, res, runs, tmp / "b.png")
     cm.plot_unexplained(est_m, {k: {**q, "u": {kk: max(x, 1e-9) for kk, x in q["u"].items()}} for k, q in res.items()},
                         runs, tmp / "c.png")
     assert all((tmp / x).stat().st_size > 10_000 for x in ("a.png", "b.png", "c.png"))
 print("6. prediction conversion, summary, data file and the three figures: OK")
+
+# ---------- 7. load_results, bound, convergence ----------
+r0 = runs["Ra_1e6_Pr_1"]
+m_same = np.bincount(r0["bins"]["ab"][0], weights=r0["psi"].astype(np.float64), minlength=r0["bins"]["ab"][1]) \
+    / np.maximum(np.bincount(r0["bins"]["ab"][0], minlength=r0["bins"]["ab"][1]), 1)
+e_m = cm.rel(m_same[r0["bins"]["ab"][0]], r0["psi"], r0["norm"])
+for g in (m_same * 0.5, m_same + 1.0, rng.normal(size=m_same.size)):
+    assert cm.rel(g[r0["bins"]["ab"][0]], r0["psi"], r0["norm"]) >= e_m - 1e-12
+assert math.isclose(cm.estimator_metrics(r0)["estar"]["ab"], e_m, rel_tol=1e-12)
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = Path(tmp)
+    dirs = []
+    for nb_ in (4, 8):
+        rr, ee, re_ = {}, {}, {}
+        for label, amp in (("Ra_1e6_Pr_1", 0.05), ("Ra_1e8_Pr_1", 0.3)):
+            rng_l = np.random.default_rng(11 if amp < 0.1 else 12)
+            zz = np.linspace(0, 1, NZ)[None, :, None]
+            yy = np.linspace(0, 2 * np.pi, NY, endpoint=False)[None, None, :]
+            Bt = (zz + amp * np.sin(np.pi * zz) * np.cos(3 * yy + rng_l.uniform(0, 6, (8, 1, 1)))
+                  + 0.02 * rng_l.normal(size=(8, NZ, NY))).astype(np.float32)
+            Bv2 = (zz + amp * np.sin(np.pi * zz) * np.cos(3 * yy + rng_l.uniform(0, 6, (4, 1, 1)))
+                   + 0.02 * rng_l.normal(size=(4, NZ, NY))).astype(np.float32)
+            Yt, Yv = laplacian(Bt.astype(np.float64)), laplacian(Bv2.astype(np.float64))
+            r = cm.prepare_run(label, Bt, Yt, Bv2, Yv, nb=nb_, nb_coarse=nb_ // 2)
+            r.update(ra=float(label.split("_")[1]), frames={"train": list(range(8)), "val": list(range(4))})
+            rr[label] = r
+        pooled_ = cm.pool(rr, nb=nb_, qsample=10 ** 9)
+        for label, r in rr.items():
+            ee[label] = cm.estimator_metrics(r)
+            out = r["psi"].astype(np.float64)
+            for v in ja.VERSIONS:
+                for n in ja.QD:
+                    for s in (42, 43):
+                        res_out = out * (0.5 if v == "v033" else 1.0) + (0.01 * s if v == "v033" else 0.0)
+                        re_[(v, n, s, label)] = cm.model_metrics(res_out, r)
+        cm.NB, cm.NB_COARSE = nb_, nb_ // 2
+        d_ = tmp / f"nb{nb_}"
+        d_.mkdir()
+        cm.save_data(ee, re_, rr, pooled_, d_ / "conditional_mean_data.npz")
+        L_ = cm.load_results(d_ / "conditional_mean_data.npz")
+        assert L_["nb"] == nb_ and L_["nb_coarse"] == nb_ // 2 and set(L_["runs"]) == set(rr)
+        assert all(math.isclose(L_["est"][l]["e"][k], ee[l]["e"][k]) for l in rr for k in cm.EST)
+        assert all(math.isclose(L_["res"][k]["u"][j], re_[k]["u"][j]) for k in re_ for j in cm.BINS)
+        assert all(math.isclose(L_["runs"][l]["ra"], rr[l]["ra"]) for l in rr)
+        assert all(math.isclose(L_["est"][l]["estar"][k], ee[l]["estar"][k]) for l in rr for k in cm.BINS)
+        dirs.append(d_)
+    cm.convergence([str(x) for x in dirs], out_dir=tmp / "conv")
+    txt = (tmp / "conv" / "summary.txt").read_text()
+    diff = float(txt.split("max |difference| = ")[1].split()[0])
+    assert diff < 1e-12, diff
+    assert all((tmp / "conv" / f).stat().st_size > 10_000 for f in ("Qd_bin_convergence_eta.png", "Qd_bin_convergence_bound.png"))
+for bad in (["--nb"], ["--nb", "abc"], ["--nb", "0"], ["--nb", "7"], ["--compare", "x"], ["--replot", "x"], ["--foo"]):
+    try:
+        cm.main(bad)
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError(bad)
+print("7. load_results round trip, the bound e*, convergence over bin counts (shared count identical): OK")
 print("ALL CONDITIONAL-MEAN TESTS PASSED")
