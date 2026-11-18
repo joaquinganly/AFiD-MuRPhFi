@@ -5,6 +5,14 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-18  CLAUDE.md section 12: say where each quantity comes from (approved 17:15)
+------------------------------------------------------------------------------
+- New bullet: when stating a quantity, say where it comes from: DNS data; computed from DNS data only; model
+  output (anything computed from a network's prediction, including its derivatives); or a comparison of the two
+  (e.g. an error), naming both. Why: the user could not tell which quantities of the conditional-mean test came
+  from the DNS and which from the networks. The fourth category was added after the independent review.
+
+
 2026-11-18  CLAUDE.md section 12: defining symbols in every message; reference lines in figures (approved 12:10)
 ------------------------------------------------------------------------------------------------
 - New bullet: in every message that states a formula or a computed quantity, define each symbol at its first use
