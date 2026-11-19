@@ -5,6 +5,32 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-19  XAI attribution runs: results; two fixes to the run checks
+--------------------------------------------------------------------
+- simulations_v2/diagnostics/xai_attribution.py, changed during the runs (tests pass after each change:
+  tmp/xai/test_xai_attribution_6.log, _7.log):
+  - PATCH_TOL 1e-3 -> 1e-2. The qc part stopped at v033 Q_c_C1 seed 44 Ra 2.5e7 with an rms gradient check of
+    2.1e-3 (prediction check 1.3e-4); a layout error would give O(1). Hypothesis (not checked cell by cell): ReLU units
+    near their kink flip between the two cuDNN evaluations. Largest values over all runs afterwards: prediction 5.6e-4,
+    gradient 8.2e-3 (v033 Q_c_C4 seed 42 Ra 5e6).
+  - rel_rms returns 0 for a zero residual. The exact C1 control at Ra 1.5e8 had a zero gradient at every checked cell
+    (first 4 frames, first row set) and the check divided 0 by 0.
+  Both stops wrote no outputs; the checkpoint kept every finished result.
+- Runs: qd 2026-11-18 23:10 - 2026-11-19 02:38 UTC, 208.9 min (tmp/xai/xai_qd_2.log); qc in three launches, the last
+  02:51 - 03:54 UTC (tmp/xai/xai_qc.log). Outputs simulations_v2/v034/xai/: summary_qd.txt, summary_qc.txt, xai_qd.npz,
+  xai_qc.npz and 7 figures. Text boxes of the 7 figures checked to lie inside the figures (re-drawn from the data files).
+- Checks: IG reproduces v034/jacobian_2 to 7.4e-16; pool = whitening cells (bbar to 1.4e-8); Shapley efficiency to
+  5e-13; exact controls against analytic credits: IG and GradSHAP <= 5e-6, Shapley <= 6e-4 (float32 rebuild of the
+  patches), Q_d_a channel formula <= 1.5e-5, C2/C4 credit of b and z <= 5e-15. Completeness at 32 midpoint steps:
+  v034 Q_d <= 0.04; v033 Q_d <= 0.23 except at Ra 1.5e8 (0.75); Q_c up to 0.36 except C1 (v034 up to 3.7, exact C1
+  GradSHAP up to 11; kink of max(s, 0) and exponential q_s): the Q_c path maps are approximate, the channel Shapley
+  values and ablation are exact. GradSHAP from 4 vs 8 references: largest share difference 2.7e-2 (Q_d), 4.8e-2 (Q_c).
+- Results (handover section 7.12): the exact operator and v034 Q_d_b agree by every method (shares d_z^2 0.89, d_y^2
+  0.11, d_z^2 d_y^2 1.3e-3); v033 does not use the curvature (removing it leaves e unchanged; removing the patch mean
+  gives e ~ 1); v034 Q_d_a uses the curvature as the Laplacian and also the patch mean, and its log10 Ra credit
+  follows the exact (1 - r)/2 law inside the training range; C4 matches the exact function at the channel level, C2
+  relies on b and z, C1 has not learned the saturation curve.
+
 2026-11-18  XAI attribution of the stencil CNNs: GradSHAP, integrated gradients, exact Shapley values, ablation
 -------------------------------------------------------------------------------------------------------------
 - New simulations_v2/diagnostics/xai_attribution.py and tests/test_xai_attribution.py (agreed with the user

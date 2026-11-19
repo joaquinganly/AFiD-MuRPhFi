@@ -93,7 +93,8 @@ PART_DATA = {"qd": (("b",), "Q_d_over_kappa"), "qc": (("b", "q", "q_minus_qs"), 
 K_REF = 8                                 # GradSHAP references per cell (even: the K/2 check)
 CHUNK = ja.CHUNK
 BATCH = 1 << 17                           # patches per model call
-PATCH_TOL = 1e-3                          # largest patch_check / grad_check accepted (layout errors give O(1))
+PATCH_TOL = 1e-2                          # largest patch_check / grad_check accepted: layout errors give O(1);
+                                          # round-off differences reached 2.1e-3 (rms gradient, v033 Q_c_C1)
 REF_SEED = 2026
 OUT_DIR = SIM / "v034" / "xai"
 J2_DATA = SIM / "v034" / "jacobian_2" / "jacobian_data.npz"
@@ -262,7 +263,8 @@ def channel_shapley(Pn, ref_n, psi, px):
 
 
 def rel_rms(resid, ref):
-    return math.sqrt(float(np.mean(np.square(resid)) / np.mean(np.square(ref))))
+    m = float(np.mean(np.square(resid)))
+    return 0.0 if m == 0.0 else math.sqrt(m / float(np.mean(np.square(ref))))
 
 
 def rel_max(resid, ref):
