@@ -613,7 +613,8 @@ def plot_template_shares(res, qd34, runs, path):
     seeds = sorted({key[1] for key in res if key[0] == "Q_a"})
     for ax, l in zip(axes.ravel(), labels):
         ex = res[("exact", 0, l)]["S_T"][2]
-        ax.plot(k, np.where(ex > 0, ex, np.nan), color="k", ls="--", marker="D", ms=5, lw=2.2, zorder=5)
+        kc = [ja.TEMPLATE_ORDER.index(c) for c in ja.CURVATURE]        # the exact operator's only templates; the
+        ax.plot(k[kc], ex[kc], color="k", ls="none", marker="D", ms=6, zorder=5)   # others are round-off (not drawn)
         for i, (cls, ls) in enumerate((("all", "-"), ("dry", ":"))):
             S = np.mean([res[("Q_a", s, l)]["S_T"][CLASSES.index(cls)] for s in seeds], axis=0)
             ax.plot(k, S, color=TAG_COL["Q_a"], ls=ls, marker="o", ms=4.5, lw=1.4)
@@ -627,7 +628,7 @@ def plot_template_shares(res, qd34, runs, path):
         ax.grid(True, ls=":", alpha=0.5)
     for r in range(2):
         axes[r][0].set_ylabel(r"$S_k$", fontsize=12)
-    handles = [Line2D([], [], color="k", ls="--", marker="D", label=r"exact $Q$, dry cells ($=\kappa\nabla^2 b$)"),
+    handles = [Line2D([], [], color="k", ls="none", marker="D", label=r"exact $Q$, dry cells ($=\kappa\nabla^2 b$; $S_k=0$ elsewhere)"),
                Line2D([], [], color=TAG_COL["Q_a"], ls="-", marker="o", label=TAG_TEX["Q_a"] + ", all cells"),
                Line2D([], [], color=TAG_COL["Q_a"], ls=":", marker="o", label=TAG_TEX["Q_a"] + ", dry cells"),
                Line2D([], [], color=TAG_COL["Q_d_a"], ls="-", marker="s", label="v034 " + TAG_TEX["Q_d_a"] + ", all cells")]

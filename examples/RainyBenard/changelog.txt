@@ -5,6 +5,40 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-20  v035 Q_a trained (3 seeds) and analysed: it learned neither local operator; figure fix; a meaningless ratio
+-------------------------------------------------------------------------------------------------------------------
+- Training (tmp/v035_train/; queue.log): seed 42 15:56-17:18 UTC, 150 epochs (epoch limit), best 141, final lr 1.95e-6,
+  training loss -0.5 % over the last 10 epochs; seed 43 17:18-18:35, 137 epochs (early stopping), best 125, lr 1.56e-5,
+  -2.3 %; seed 44 18:50-19:29, 66 epochs (early stopping), best 54, lr 2.5e-4, -14.6 % (not converged). Best validation
+  loss (mean over the 8 training runs of sum (Q^ - Q)^2 / sum Q^2 on the validation block) 5.93e-2, 4.32e-2, 8.39e-2,
+  recomputed from the saved models to <= 1.2e-7 (v034: Q_d_a 8.2e-4, Q_c_C4 1.48e-3).
+- Analyses: diagnostics/v035_q_analysis.py jac, xai, eval, dns, one Docker call 20:20-21:38 UTC (logs
+  tmp/v035_analysis/{jac,xai,eval,dns}.log, status.log; all EXIT 0); outputs simulations_v2/v035/analysis/ (summary_*.txt,
+  jacobian.npz, xai.npz, per_run_errors.csv, dns_vs_cnn.npz, 11 figures). Controls: exact Q through the same code gives
+  dz^2/kappa dQ/db = L, dQ/ds = 20 at wet centres, r_rho = 1.0000; analytic Shapley credits to <= 4.2e-6 (channels) and
+  <= 2.5e-4 (templates); v034 Q_d_a and C4 reproduce the 2026-11-16/20 Jacobians (e.g. C4 sum of the 9 dQ^_c/ds medians
+  19.46, 15.48, 18.00).
+- Results (model output against DNS; e = relative RMS error; ranges over runs, means over seeds unless stated):
+  - Errors on every frame of the validation blocks: Q_a e = 0.066 (Ra 1e6) to 0.42 (Ra 1e8); the sum of the separately
+    trained v034 Q_d_a + C4 (paired by seed) 0.0115 to 0.073. Test runs: Q_a 0.16 / 0.51, sum 0.025 / 0.13 (Ra 8.7e6 /
+    1.5e8). Cells with DNS Q_c = 0 (Q = Q_d there): Q_a 0.16-0.43, sum 0.015-0.044. Best z-profile 0.996-0.999.
+  - Jacobian, cells with DNS Q_c = 0, 8 training runs pooled (seeds 42 / 43 / 44): template coordinates of
+    dz^2/kappa dQ^/db along d_z^2, d_y^2, d_z^2 d_y^2 = 0.83 / 0.96 / 0.87, 0.50 / 0.36 / 0.43, +0.76 / +0.09 / +2.51
+    (exact 1.41, 1.41, -4; sum of the v034 networks 1.39-1.42, 1.37-1.39, -3.73 to -4.11). Cells with DNS Q_c > 0: sum of
+    the 9 medians of dQ^/ds 0.89 / 5.26 / 0.23 (exact 20). r_rho (Q_c = 0 cells) 0.63 / 0.62 / 0.54 (v034 Q_d_a 0.82-0.93).
+  - Exact Shapley values (explained cells): where Q_c = 0 the network credits s with 6-38 % (exact 0) and, inside the b
+    patch, the patch mean with 11-40 % and d_z b with 12-37 % (exact 0; d_z^2 83-100 %); removing the patch mean raises
+    its error there from 0.16-0.60 to 0.66-3.1 (exact: unchanged). Where Q_c > 0, b gets 10-75 % (exact 3-31 %).
+  - Hypothesis (not checked): with Q_c carrying 92-99 % of sum Q^2, the loss pushes the network to fit condensation and to
+    represent diffusion by where the patch lies in the mean profile (patch mean, d_z b), as v033 did for Q_d.
+- Error of mine in the analysis script: the "mean ratio" sum Q^ / sum Q (part eval) and mean_t <Q^> / mean_t <Q> (part
+  dns) divide by a sum close to 0 (integrated over the box Q = d<b>/dt; Q_d and Q_c nearly cancel), so the values
+  (-1316 to 11288) carry no information. Not used; a replacement is proposed in the handover.
+- Q_template_shares.png drew the exact operator's round-off shares (~1e-9) as a line falling off the axis; the script now
+  draws the exact values only on d_z^2, d_y^2, d_z^2 d_y^2. Corrected figure tmp/v035_analysis/Q_template_shares_fixed.png
+  (redrawn from xai.npz by tmp/v035_analysis/replot_template_shares.py); the old one is kept until the user allows
+  replacing it. Tests pass after the change: tmp/v035_tests/test_v035_q_analysis_3.log.
+
 2026-11-20  v035: one network for the whole source term Q = Q_d + Q_c; its analysis script; Q_c Jacobian figure replaced
 -------------------------------------------------------------------------------------------------------------------
 - Asked by the user (2026-11-20): train Q = Q_d + Q_c as one model, then run the Jacobian stencil test and the other
