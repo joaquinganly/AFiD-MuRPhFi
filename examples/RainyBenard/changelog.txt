@@ -5,6 +5,43 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-20  v035: one network for the whole source term Q = Q_d + Q_c; its analysis script; Q_c Jacobian figure replaced
+-------------------------------------------------------------------------------------------------------------------
+- Asked by the user (2026-11-20): train Q = Q_d + Q_c as one model, then run the Jacobian stencil test and the other
+  analyses of the Q_d and Q_c networks on it, to see whether the same findings hold or the two can be linked. Design
+  chosen by the user: inputs b, q - q_s, log10 Ra (the union of v034 Q_d_a and Q_c_C4); whitened b patch, raw q - q_s
+  patch (as C4); seeds 42-44.
+- Data check before the design (tmp/q_model/q_split.py, log tmp/q_model/q_split.log): with S_xy = sum over all cells
+  and the v034 training (or validation) frames of one run, S_dd/S_QQ = 0.12-0.24, S_cc/S_QQ = 0.92-0.99,
+  2 S_dc/S_QQ = -0.09 to -0.18 over the 10 runs and both blocks (d: Q_d, c: Q_c). Q_c carries most of sum Q^2;
+  predicting Q_c exactly and Q_d = 0 would give a per-run relative MSE of 0.12-0.24.
+- New simulations_v2/v035 stencil CNN.py, generated from "v034 stencil CNN.py" by tmp/q_model/make_v035.py (exact,
+  single-occurrence replacements; diff tmp/q_model/v034_v035.diff): CONFIGS = {Q_a: b, q_minus_qs, log10_Ra -> Q};
+  WHITEN_CONFIGS = (Q_a,); PATCH_CHANNELS = (q_minus_qs,): the fixed float64 first layer whitens the b patch as in
+  v034 and passes the whole 3 x 3 patch of q - q_s (v034 passed only the centre value of every channel but b) and the
+  centre of log10 Ra; Keras package "v035". Everything else as v034. .gitignore: the script is tracked.
+- New tests/test_v035_stencil_cnn.py (passes: tmp/v035_tests/test_v035_stencil_cnn.log): settings equal v034's apart
+  from the configuration; first layer (whitened b to 4.3e-15; the q - q_s patch in the order m = 3(di+1)+(dj+1), ghost
+  rows and periodic y, exact; log10 Ra centre; exact readout gives the Laplacian to 2.0e-7 at an eigenvalue ratio
+  5.5e11); receptive field 3 x 3 per channel; data (target Q_d + Q_c, not the stored finite-difference Q); main() end
+  to end. Independent review (subagent): no layout error; header now says a ReLU network only approximates kappa Lap b.
+- Training queue tmp/v035_train/run_v035_queue.sh (as the v034 queue; WORST_MIN 90), logs tmp/v035_train/, outputs
+  simulations_v2/v035/Q_a/. Started 2026-11-20 15:56 UTC, ~31 s per epoch. Results: a later entry.
+- New simulations_v2/diagnostics/v035_q_analysis.py, parts jac | xai | eval | dns (outputs simulations_v2/v035/analysis/;
+  refuses to overwrite): Jacobians of Q^ with respect to b, q - q_s and log10 Ra at the explained cells of
+  xai_attribution.py, split by DNS Q_c > 0 (wet) and = 0 (dry); exact Shapley values over the channels and the b
+  templates, and ablation; errors per run; DNS against CNN on every frame of the test runs. Compared models: v035 Q_a,
+  v034 Q_d_a, v034 Q_c_C4, their sum (paired by seed) and the exact Q. Path methods (GradSHAP, IG) left out: their
+  completeness for Q_c is 0.1-0.3 even for the exact function (2026-11-19).
+- New tests/test_v035_q_analysis.py (passes: tmp/v035_tests/test_v035_q_analysis_2.log; the first run stopped at a
+  mathtext error, \sqrt2 -> \sqrt{2}): every part through main() on synthetic runs with exact stand-ins for the
+  networks (errors at round-off; J_b dz^2/kappa = L; dQ/ds = gamma/tau at wet centres; r_rho = 1; analytic Shapley
+  credits). Independent review (subagent): maths confirmed; applied: input keys from the training loader's CHANNELS,
+  a dz = dy = 1/NZ check against each bou.in (tested), tolerance 1e-3 on the exact control's analytic credits, a test
+  of the DNS profile.
+- Approved by the user: simulations_v2/v034/xai/Qc_jacobian_stencils.png replaced by tmp/xai/Qc_jacobian_stencils_fixed.png
+  (C1 numbers no longer overlap; md5 0f6c9b7768edeed030c1c156e16080c3).
+
 2026-11-20  XAI follow-up figures: channel shares in per cent, Q_d_a panels split, Jacobian stencils of Q^_c
 -------------------------------------------------------------------------------------------------------------
 - New simulations_v2/diagnostics/xai_figures.py and tests/test_xai_figures.py (agreed with the user 2026-11-20;

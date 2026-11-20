@@ -44,3 +44,5 @@ examples/RainyBenard/simulations_v2/Convergence test/*
 # v034 stencil CNN (outputs in simulations_v2/v034/ stay ignored)
 !examples/RainyBenard/simulations_v2/v034 stencil CNN.py
 !examples/RainyBenard/simulations_v2/v034 evaluate.py
+# v035 stencil CNN: the whole source term Q = Q_d + Q_c (outputs in simulations_v2/v035/ stay ignored)
+!examples/RainyBenard/simulations_v2/v035 stencil CNN.py
