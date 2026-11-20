@@ -5,6 +5,35 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-20  XAI follow-up figures: channel shares in per cent, Q_d_a panels split, Jacobian stencils of Q^_c
+-------------------------------------------------------------------------------------------------------------
+- New simulations_v2/diagnostics/xai_figures.py and tests/test_xai_figures.py (agreed with the user 2026-11-20;
+  tests pass: tmp/xai/test_xai_figures_3.log). Read-only on the models and on the outputs of xai_attribution.py;
+  refuses to overwrite; the figures of 2026-11-19 are kept. Independent review (subagent): applied the gamma/tau
+  check and title value, NaN-safe colour limits, "no data" labels, the legend wording, and a test of the patch
+  layout (a model returning x(i + 1, j) has its only non-zero entry at m = 7, row z + 1 of the stencil).
+- Part npz (2 s; tmp/xai/xai_figures_npz.log), redrawn from v034/xai/xai_qc.npz and xai_qd.npz, nothing
+  recomputed: Qc_channel_shares_pct.png (channel-Shapley shares S_ch in per cent, stacked bars per run, mean over
+  seeds; the user chose the existing squared shares over a rerun with |phi|; Qc_channel_shapley.png spans 40
+  decades because the exact C2/C4 share of b, a round-off zero ~1e-37, sets a y axis shared by all panels),
+  Qd_a_rho_share.png and Qd_a_channel_errors.png (the two panels of Qd_a_channel_attribution.png; the errors split
+  into e_0, e_-rho, e_-b).
+- Part qc_jacobian (222 s; tmp/xai/xai_figures_qc_jacobian.log): J = d Q^_c / d x_ch(i + p, j + q) in raw units,
+  by automatic differentiation, at the explained cells of xai_attribution.py where the DNS condenses (Q_c > 0;
+  92 819 cells in the 8 training runs), all 24 Q_c models and the exact C1, C2, C4. Outputs v034/xai/qc_jacobian.npz,
+  summary_qc_jacobian.txt, Qc_jacobian_stencils.png. Replaces the reading of Qc_GradSHAP_maps.png: in a one-cell
+  example (Ra 1e7, frame 1000, z = 0.145; tmp/xai/example_cell.log) the straight GradSHAP path from a dry reference
+  (s' ~ -0.08) crosses s = 0 at alpha ~ 0.999, after the last of the 32 midpoints, and the credits summed to 32 %
+  (v034 C4) and 21 % (exact) of the output change.
+- Results (medians over the pooled training cells): exact C2/C4 dQ_c/ds = 20 at the centre, 0 elsewhere; exact C1
+  d/dq 20, d/db -37.8, d/dz +75.6 (centre only). C4: d/ds 2.9-4.6 at the centre (per seed), seed means 0.7-3.2 at
+  the neighbours, sum of the 9 medians 15.5-19.5 (v034) and 16.3-18.9 (v033); seed means |d/db| <= 0.06. C2: sum
+  of the d/ds medians 17.8-19.9; seed means |d/db|, |d/dz| <= 0.09. C1: seed means <= 0.013 in magnitude (exact 20
+  to 76). C3: seed means <= 0.004.
+- Stencil figure: drawn at 4.6 in per column, the C1 numbers overlap; the script now uses 6.0 in and font 6.5
+  (test _3). The corrected figure is tmp/xai/Qc_jacobian_stencils_fixed.png (redrawn from qc_jacobian.npz by
+  tmp/xai/replot_stencils.py); v034/xai/Qc_jacobian_stencils.png is kept until the user allows replacing it.
+
 2026-11-19  XAI attribution runs: results; two fixes to the run checks
 --------------------------------------------------------------------
 - simulations_v2/diagnostics/xai_attribution.py, changed during the runs (tests pass after each change:
