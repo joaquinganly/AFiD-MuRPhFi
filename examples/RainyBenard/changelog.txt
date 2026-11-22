@@ -5,6 +5,36 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-22  v035 seed 44 retrained to convergence; whole analysis rerun into v035/analysis_2 (with beta)
+-----------------------------------------------------------------------------------------------------
+- Run: tmp/v035_train/run_seed44_rerun.sh, one Docker call, 11:38-14:25 UTC (tmp/v035_train/queue.log: SCRIPT EXIT 0).
+  Training 11:38-13:01 (tmp/v035_train/Q_a_seed44_rerun.log, EXIT 0): 150 epochs, best epoch 102, learning-rate drops at
+  epochs 64, 74, 83, 88, 93, 108, 113, ..., 148 (every 5 epochs), final lr 1e-7 (the floor), training loss -0.03 % over
+  the last 10 epochs, best validation loss 8.03e-2 (the early-stopped attempt: 66 epochs, best 54, lr 2.5e-4, -14.6 %,
+  8.39e-2; seeds 42, 43: 5.93e-2, 4.32e-2). Convergence check passed (tmp/v035_analysis_2/convergence.log). Analysis
+  parts jac, xai, eval, dns into simulations_v2/v035/analysis_2/ (logs tmp/v035_analysis_2/, all EXIT 0).
+- Checks: every unchanged model (Q_a seeds 42 and 43, v034 Q_d_a and C4, their sum, the exact Q) reproduces the
+  2026-11-20 values of the four summary files to all printed digits; the validation loss of the new seed 44 is
+  recomputed to 1.4e-7 of the Keras history.
+- Seed 44 after convergence (model output vs DNS; early-stopped -> converged): Jacobian on cells with DNS Q_c = 0,
+  8 training runs pooled, template coordinates of dz^2/kappa dQ^/db along d_z^2, d_y^2, d_z^2 d_y^2: 0.87 -> 0.80,
+  0.43 -> 0.14, +2.51 -> -1.86 (exact 1.41, 1.41, -4); r_rho 0.54 -> 0.70 (exact 1); cells with DNS Q_c > 0: sum of
+  the 9 medians of dQ^/ds 0.23 -> 0.15 (exact 20). e on the validation blocks 0.085 -> 0.070 (Ra 1e6), 0.490 -> 0.477
+  (Ra 1e8); test runs 0.187 -> 0.188 (Ra 8.7e6), 0.496 -> 0.502 (Ra 1.5e8).
+- The reading of 2026-11-20 holds with all three seeds trained to convergence: one network for Q learns neither operator
+  (cells with Q_c = 0: 57-68 % of the exact slope along d_z^2, 10-35 % along d_y^2, mixed term -1.86 to +0.76 against
+  -4; cells with Q_c > 0: sums of the s slopes 0.15-5.26 against 20), while the sum of the separate v034 networks is
+  the Laplacian where Q_c = 0 and applies gamma/tau to a 3 x 3 average of s where Q_c > 0. Ranges that changed with
+  seed 44 (seed means per run, ranges over the 10 runs): exact Shapley shares inside the b patch where Q_c = 0, patch
+  mean 9-38 % (was 11-40 %), d_z b 9-40 % (was 12-37 %); removing the patch mean raises e there from 0.15-0.59 to
+  0.71-3.5 (was 0.16-0.60 to 0.66-3.1); share of b where Q_c > 0 10-67 % (single seeds; was 10-75 %, exact 3-31 %).
+- beta (new; model vs DNS; beta_0 = beta of Q^ = 0, from DNS data only): validation blocks, single seeds: Q_a -0.22 to
+  +0.02, sum -0.024 to +0.011; beta_0 from +6e-6 (Ra 1e6) to -0.10 (Ra 5e7, 1e8). Test runs, frames 25..1000, per
+  seed: Ra 8.7e6: Q_a -0.011 to +0.096, sum -0.007 to +0.015, beta_0 +0.028; Ra 1.5e8: Q_a -0.44 to -0.14, sum -0.19
+  to -0.10, beta_0 +0.11. At Ra 1.5e8 both models give a smaller box-integrated source term than the DNS (sum Q^ <
+  sum Q, by 10-44 % of the latent heating), while sum Q itself is negative there (beta_0 > 0).
+- The 11 figures of analysis_2 come from the same plotting code as those of 2026-11-20; not inspected visually.
+
 2026-11-22  v035: template-share figure replaced; beta replaces the meaningless ratio; option --no-early-stop; seed 44 retrain
 -------------------------------------------------------------------------------------------------------------------
 - Approved by the user (2026-11-22): simulations_v2/v035/analysis/Q_template_shares.png replaced by
