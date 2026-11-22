@@ -12,8 +12,9 @@ Notation. Q = Q_d + Q_c with Q_d = kappa Lap b, Q_c = (gamma/tau) max(s, 0), s =
   Relative error over a set of cells c: e = sqrt(sum_c (Q^_c - Q_c)^2 / sum_c Q_c^2) with the DNS Q; e = 1 is the error
   of predicting 0. Explained cells (parts jac, xai): the interior sampled cells (rows 0 and 1 mod 3 without the wall
   rows, columns 0 mod 3) of the ja.N_FRAMES = 8 evenly spaced validation-block frames per run, as in xa.
-Parts (python diagnostics/v035_q_analysis.py <part>, from simulations_v2/ inside the Docker container; outputs in
-simulations_v2/v035/analysis/; refuses to overwrite):
+Parts (python diagnostics/v035_q_analysis.py <part> [--out NAME], from simulations_v2/ inside the Docker container;
+outputs in simulations_v2/v035/analysis/, or in simulations_v2/v035/NAME/ with --out (added 2026-11-22); refuses to
+overwrite):
   jac   Jacobian, as jacobian_attribution.py (Q_d) and xai_figures.py qc_jacobian (Q_c): J_ch,pq = d Q^(i, j) /
         d x_ch(i + p, j + q) in raw units, by reverse-mode automatic differentiation (Baydin et al. 2018) on the 3 x 3
         patches of the explained cells, for wet and dry cells separately, per run and pooled over the 8 training runs.
@@ -35,10 +36,13 @@ simulations_v2/v035/analysis/; refuses to overwrite):
         kappa_c (L.u_k) a_k / dz^2, a_k = u_k.(b - bbar).
   eval  As "v034 evaluate.py", analyses 1 and 3: e per run on every frame of the training and validation blocks
         (training runs) and of both blocks (test runs), on all, wet and dry cells, for Q_a and sum; reference: the run's
-        best function of height alone (its mean profile of Q; McGreivy & Hakim 2024); the ratio of domain-and-time
-        means sum Q^ / sum Q; the validation loss recomputed against the Keras history; the training summary.
+        best function of height alone (its mean profile of Q; McGreivy & Hakim 2024); the domain-mean bias
+        beta = (sum Q^ - sum Q) / sum Q_c over the same cells and frames (see beta(); on 2026-11-22 it replaced the
+        ratio sum Q^ / sum Q, whose denominator nearly vanishes); the validation loss recomputed against the Keras
+        history; the training summary.
   dns   As diagnostics/v034_dns_vs_cnn.py for Q, every frame 0..1000 of the two test runs: domain means <Q>(t), <Q^>(t);
-        e on frames 0..24 (drizzle start, never trained on), 25..1000 and all; time-mean profiles <Q>_{y,t}(z) over
+        e on frames 0..24 (drizzle start, never trained on), 25..1000 and all; beta = (mean_t <Q^> - mean_t <Q>) /
+        mean_t <Q_c> over frames 25..1000 (see beta()); time-mean profiles <Q>_{y,t}(z) over
         frames 25..1000; joint histograms of (Q, Q^) (seed 42); snapshots of Q, Q^ - Q at t* = argmax_{t >= 25} <Q_c>(t)
         and t_q = argmin_{t >= 25} <Q_c>(t) (the frames of the v034 comparison).
 """
@@ -674,6 +678,19 @@ def plot_ablation(res, runs, path):
 # 4. Part eval: errors on every frame of the blocks
 # ============================================================
 
+def beta(sum_pred, sum_dns, sum_qc):
+    """Domain-mean bias of a predicted source term as a fraction of the mean latent heating [model vs DNS]:
+    beta = (sum Q^ - sum Q) / sum Q_c, the three sums over the same cells and frames (means over them give the same
+    value). Reference values: 0 for a perfect prediction; beta_0 = -sum Q / sum Q_c for Q^ = 0, which is small because
+    the box integral of Q = d<b>/dt nearly vanishes: beta measures the box budget of the prediction, not its skill
+    (that is e). The denominator is >= 0 in every cell (Q_c >= 0) and positive over a run's frames; the ratio
+    sum Q^ / sum Q that beta replaced (2026-11-22) divided by the nearly vanishing sum Q, and a relative error
+    |x - x^| / |x| has no meaning as x -> 0 (Higham 2002, sec. 1.2)."""
+    if not sum_qc > 0:
+        raise ValueError(f"sum Q_c = {sum_qc}: beta is undefined")
+    return (sum_pred - sum_dns) / sum_qc
+
+
 def eval_run(setups, label):
     """Error sums per (model, seed, set, class) on one run; z-profile reference."""
     xa.set_inputs(T34, CHANS, "Q_c")
@@ -702,16 +719,18 @@ def eval_run(setups, label):
                          "sum": predict_raw(setups["Q_d_a"]["models"][s], setups["Q_d_a"], X["Q_d_a"])
                          + predict_raw(setups["C4"]["models"][s], setups["C4"], X["C4"])}
                 for tag, p in preds.items():
-                    a = acc.setdefault((tag, s), {c: [0.0, 0.0] for c in CLASSES} | {"sum_p": 0.0, "sum_y": 0.0})
+                    a = acc.setdefault((tag, s), {c: [0.0, 0.0] for c in CLASSES} | {"sum_p": 0.0, "sum_y": 0.0, "sum_c": 0.0})
                     e2 = (p - y) ** 2
                     for c, m in masks.items():
                         a[c][0] += float(e2[m].sum())
                         a[c][1] += float(np.sum(y[m] ** 2))
                     a["sum_p"] += float(p.sum())
                     a["sum_y"] += float(y.sum())
+                    a["sum_c"] += float(np.sum(run["y"][ii], dtype=np.float64))     # run["y"] is Q_c here
         for (tag, s), a in acc.items():
             r = {"model": tag, "seed": s, "run": label, "set": st, "ra": run["ra"], "kappa": run["kappa"],
-                 "frac_wet": float(wet_all[idx].mean()), "mean_ratio": a["sum_p"] / a["sum_y"]}
+                 "frac_wet": float(wet_all[idx].mean()), "beta": beta(a["sum_p"], a["sum_y"], a["sum_c"]),
+                 "beta_zero": beta(0.0, a["sum_y"], a["sum_c"])}
             for c in CLASSES:
                 r[f"rel_mse_{c}"] = a[c][0] / a[c][1]
                 r[f"e_{c}"] = math.sqrt(a[c][0] / a[c][1])
@@ -726,7 +745,8 @@ def eval_run(setups, label):
 def eval_summary(records, loss_check, train_info):
     L = ["v035 Q_a and the sum Q^_d(v034 Q_d_a) + Q^_c(v034 C4), paired by seed. e = sqrt(sum (Q^ - Q)^2 / sum Q^2) per run",
          "and set over every frame of the block(s); ref: the run's mean profile of Q over the same frames; wet: DNS Q_c > 0.",
-         "mean ratio: sum Q^ / sum Q over the same cells and frames.", "",
+         "beta = (sum Q^ - sum Q) / sum Q_c over the same cells and frames (0: no bias of the box-integrated source term);",
+         "beta_0: beta of Q^ = 0 (reference).", "",
          "1. Validation loss recomputed (mean over the training runs of the relative MSE) vs the Keras history at the best epoch"]
     for s, (a, b) in loss_check.items():
         L.append(f"   Q_a seed {s}: {a:.6e} vs {b:.6e} (relative difference {abs(a - b) / b:.1e})")
@@ -737,7 +757,7 @@ def eval_summary(records, loss_check, train_info):
                  f"{v['train_change_last10']:+.4f} {v['best_val_loss']:.4e}")
     L += ["", "3. Per run: mean over seeds [min, max]",
           f"   {'run':<15} {'set':<5} {'model':<5} {'e all':>9} {'[min,':>9} {'max]':>9} {'e wet':>9} {'e dry':>9} "
-          f"{'ref all':>9} {'ratio':>7} {'frac wet':>8}"]
+          f"{'ref all':>9} {'beta':>10} {'beta_0':>10} {'frac wet':>8}"]
     for label in T34.TRAIN_RUNS + T34.TEST_RUNS:
         for st in ("train", "val", "test"):
             for tag in ("Q_a", "sum"):
@@ -747,7 +767,8 @@ def eval_summary(records, loss_check, train_info):
                 e = [r["e_all"] for r in rs]
                 L.append(f"   {label:<15} {st:<5} {tag:<5} {np.mean(e):9.3e} {min(e):9.3e} {max(e):9.3e} "
                          f"{np.mean([r['e_wet'] for r in rs]):9.3e} {np.mean([r['e_dry'] for r in rs]):9.3e} "
-                         f"{rs[0]['ref_all']:9.3e} {np.mean([r['mean_ratio'] for r in rs]):7.4f} {rs[0]['frac_wet']:8.4f}")
+                         f"{rs[0]['ref_all']:9.3e} {np.mean([r['beta'] for r in rs]):+10.3e} {rs[0]['beta_zero']:+10.3e} "
+                         f"{rs[0]['frac_wet']:8.4f}")
     return "\n".join(L) + "\n"
 
 
@@ -878,14 +899,16 @@ def dns_errors(a, sl):
 
 def dns_summary(res):
     L = ["Q networks against the DNS on every frame of the test runs. e = sqrt(sum (Q^ - Q)^2 / sum Q^2) over the frames named;",
-         "mean ratio: mean_t <Q^>(t) / mean_t <Q>(t) over frames 25..1000; <.>: domain mean.", ""]
+         "beta = (mean_t <Q^>(t) - mean_t <Q>(t)) / mean_t <Q_c>(t) over frames 25..1000 (0: no bias); beta_0: beta of",
+         "Q^ = 0 (reference); <.>: domain mean.", ""]
     for label, r in res.items():
+        dm, dm_c = r["dm"][SPIN:].mean(), r["dm_c"][SPIN:].mean()
         L.append(f"=== {label}: t* = {r['frames']['t_star']} (largest <Q_c>), t_q = {r['frames']['t_quiet']} (smallest <Q_c>), "
-                 f"frames >= {SPIN}")
-        L.append(f"  {'model':<5} {'seed':>4} {'e all':>9} {'e 0..24':>9} {'e 25..':>9} {'ratio':>8}")
+                 f"frames >= {SPIN}; beta_0 = {beta(0.0, dm, dm_c):+.3e}")
+        L.append(f"  {'model':<5} {'seed':>4} {'e all':>9} {'e 0..24':>9} {'e 25..':>9} {'beta':>10}")
         for (tag, s), a in sorted(r["pred"].items()):
             L.append(f"  {tag:<5} {s:>4} {dns_errors(a, slice(None)):9.3e} {dns_errors(a, slice(0, SPIN)):9.3e} "
-                     f"{dns_errors(a, slice(SPIN, None)):9.3e} {a['dm'][SPIN:].mean() / r['dm'][SPIN:].mean():8.4f}")
+                     f"{dns_errors(a, slice(SPIN, None)):9.3e} {beta(a['dm'][SPIN:].mean(), dm, dm_c):+10.3e}")
         L.append("")
     return "\n".join(L)
 
@@ -996,8 +1019,14 @@ def load_all_setups():
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Analyses of the v035 Q networks (see the docstring).")
+    global OUT_DIR
     ap.add_argument("part", choices=tuple(PART_OUT))
+    ap.add_argument("--out", default=None, help="output folder under simulations_v2/v035/ (default: analysis)")
     a = ap.parse_args(argv)
+    if a.out is not None:
+        if a.out in ("", ".", "..") or Path(a.out).name != a.out:
+            sys.exit(f"--out {a.out!r}: give a plain folder name")
+        OUT_DIR = T35.OUT_DIR / a.out
     t_start = time.time()
     paths = [OUT_DIR / f for f in PART_OUT[a.part]]
     refuse(paths)

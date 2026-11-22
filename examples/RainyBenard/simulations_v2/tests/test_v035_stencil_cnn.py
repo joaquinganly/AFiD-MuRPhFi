@@ -13,7 +13,8 @@ D. Data on synthetic run folders: inputs b, rel_q (q - q_s), log10 Ra; target Q_
    sigma^2 / mean(Q^2) per run and block.
 E. End-to-end smoke test of main() for Q_a, one seed per call: config.json and the whitening written once and
    reused; the saved model reloads with the stored first layer; test and excluded runs never read; refuses to
-   overwrite.
+   overwrite. --no-early-stop (2026-11-22): parsed anywhere; the same callbacks without EarlyStopping; the model
+   trains EPOCHS epochs; recorded per seed in summary.json and summary.txt; config.json unchanged.
 Usage (from simulations_v2/): python tests/test_v035_stencil_cnn.py "v035 stencil CNN.py"
 """
 import os
@@ -219,6 +220,16 @@ def spy_load(path, *a, **k):
     return _orig_load(path, *a, **k)
 
 
+captured = []
+_orig_fit = tf.keras.Model.fit
+
+
+def spy_fit(self, *a, **k):
+    captured.append(sorted(type(c).__name__ for c in k["callbacks"]))
+    return _orig_fit(self, *a, **k)
+
+
+tf.keras.Model.fit = spy_fit
 m.np.load = spy_load
 m.main(["Q_a", "2"])
 cfg_text = (m.OUT_DIR / "Q_a" / "config.json").read_text()
@@ -247,6 +258,22 @@ for s_ in (1, 2):
     assert mod(np.zeros((1, m.NZ, m.NY, 3), np.float32)).shape == (1, m.NZ, m.NY, 1)
 expect(SystemExit, m.main, ["Q_a", "1"])                               # refuses to overwrite
 expect(ValueError, m.parse_args, ["Q_d_a"])                            # v034 configurations are not in v035
+with_es = ["CSVLogger", "DelayedReduceLROnPlateau", "EarlyStopping", "ModelCheckpoint", "TerminateOnNaN"]
+assert captured == [with_es, with_es], captured
+assert m.parse_args(["Q_a", "2"]) == ("Q_a", (2,), True)
+assert m.parse_args(["Q_a", "2", "--no-early-stop"]) == ("Q_a", (2,), False)
+assert m.parse_args(["--no-early-stop", "Q_a"]) == ("Q_a", m.SEEDS, False)
+m.SEEDS = (1, 2, 3)
+m.main(["Q_a", "3", "--no-early-stop"])
+tf.keras.Model.fit = _orig_fit
+assert captured[2] == [c for c in with_es if c != "EarlyStopping"], captured
+summ = {s["seed"]: s for s in json.loads((m.OUT_DIR / "Q_a" / "summary.json").read_text())}
+assert summ[3]["early_stopping"] is False and summ[3]["epochs_run"] == m.EPOCHS, summ[3]
+assert summ[1]["early_stopping"] is True and summ[2]["early_stopping"] is True
+assert (m.OUT_DIR / "Q_a" / "config.json").read_text() == cfg_text
+assert "early stopping off (--no-early-stop) for seeds [3]" in (m.OUT_DIR / "Q_a" / "summary.txt").read_text()
+print("E. --no-early-stop: callbacks without EarlyStopping, EPOCHS epochs, recorded in summary.json and summary.txt; "
+      "config.json unchanged")
 shutil.rmtree(tmp)
 print("E. End-to-end smoke test passed (test and excluded runs never read; whitening stored once, saved in the model "
       "and reused; refuses to overwrite)")

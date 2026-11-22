@@ -157,6 +157,7 @@ Raw simulation data, trained models, checkpoints and previous experimental resul
 - Log every change to code, simulation setup, datasets or experiment configuration in `examples/RainyBenard/changelog.txt` (newest entries first): date (YYYY-MM-DD), what changed, why, and where (file and log paths). Commit the entry together with the change, or on its own when the change is to git-ignored data.
 - Preserve the ability to reproduce previous experiments.
 - Verify which dataset, checkpoint and evaluation procedure produced a metric before reporting it.
+- Before reusing a ratio or other relative metric on a new target, check that its denominator is bounded away from zero on the data (2026-11-22: a mean ratio reused for Q = Q_d + Q_c divided by its box sum, which nearly vanishes).
 - Clearly distinguish training, validation and test results.
 - Do not make claims about model performance without checking the underlying data and evaluation procedure.
 - When a data defect is found in one run, test all runs for it before reporting its scope.

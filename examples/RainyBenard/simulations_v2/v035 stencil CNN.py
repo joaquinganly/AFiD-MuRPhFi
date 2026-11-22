@@ -18,6 +18,11 @@
 #      Q_d_a. The first trainable layer is a 1 x 1 convolution on these 9 + 9 + 1 values: the same
 #      function class as a 3 x 3 convolution over (b, q - q_s, log10_Ra), because W is invertible.
 #   3. Keras serialisation package "v035" (v034 used "v034", v033 "v033").
+#   4. Option --no-early-stop (added 2026-11-22, asked by the user): no EarlyStopping callback, so the model trains
+#      EPOCHS epochs; the learning-rate schedule and model selection (lowest validation loss) are unchanged. Used to
+#      retrain seed 44, which early stopping had ended at epoch 66 with the training loss still falling 14.6 % per 10
+#      epochs. Recorded per seed in summary.json ("early_stopping"); config.json, shared by the seeds, is unchanged.
+#      Usage: python "v035 stencil CNN.py" Q_a 44 --no-early-stop
 # Everything else (data, split, run weights, loss, optimiser, learning-rate schedule, seeds) is as
 # v034, whose header follows.
 #
@@ -634,7 +639,11 @@ def build_stencil_cnn(pad_args, name, seed, whiten=None):
 # ============================================================
 
 def parse_args(argv):
-    """Configuration name (first argument) and seeds (the rest; all SEEDS if none)."""
+    """Configuration name (first argument), seeds (the rest; all SEEDS if none) and whether to stop early (False with
+    the option --no-early-stop, given anywhere)."""
+    argv = list(argv)
+    early_stop = "--no-early-stop" not in argv
+    argv = [a for a in argv if a != "--no-early-stop"]
     if not argv or argv[0] not in CONFIGS:
         raise ValueError(f"Bad arguments {list(argv)}; first give a configuration from "
                          f"{list(CONFIGS)}, then optional seeds from {SEEDS}")
@@ -645,7 +654,7 @@ def parse_args(argv):
     seeds = seeds or SEEDS
     if len(set(seeds)) != len(seeds) or not set(seeds) <= set(SEEDS):
         raise ValueError(f"Bad seeds {list(seeds)}; choose distinct seeds from {SEEDS}")
-    return argv[0], seeds
+    return argv[0], seeds, early_stop
 
 
 def check_config(name, seeds):
@@ -798,7 +807,7 @@ def plot_losses(history, name, seed, y_std, yscale, path):
 # 7. Training one model
 # ============================================================
 
-def train_one(name, seed, runs, target_norm, pad_args, weights, whiten=None):
+def train_one(name, seed, runs, target_norm, pad_args, weights, whiten=None, early_stop=True):
     out = OUT_DIR / name / f"seed_{seed}"
     out.mkdir(parents=True, exist_ok=False)
 
@@ -818,17 +827,18 @@ def train_one(name, seed, runs, target_norm, pad_args, weights, whiten=None):
             str(out / "model.keras"), monitor="val_loss", mode="min", save_best_only=True),
         DelayedReduceLROnPlateau(start_from_epoch=CONSTANT_LR_EPOCHS, monitor="val_loss", **LR_PLATEAU,
                                  verbose=1),
-        tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss", patience=EARLY_STOP_PATIENCE, restore_best_weights=True, verbose=1,
-            start_from_epoch=CONSTANT_LR_EPOCHS),
         tf.keras.callbacks.CSVLogger(str(out / "history.csv")),
     ]
+    if early_stop:
+        callbacks.insert(3, tf.keras.callbacks.EarlyStopping(
+            monitor="val_loss", patience=EARLY_STOP_PATIENCE, restore_best_weights=True, verbose=1,
+            start_from_epoch=CONSTANT_LR_EPOCHS))
     train_gen = RunSnapshots(runs, "train", target_norm, BATCH_SIZE, shuffle=True, seed=seed,
                              weights=weights)
     val_gen = RunSnapshots(runs, "val", target_norm, BATCH_SIZE, shuffle=False, seed=seed,
                            weights=weights)
     print(f"\n=== {name}, seed {seed}: {len(train_gen.index)} training and "
-          f"{len(val_gen.index)} validation samples ===", flush=True)
+          f"{len(val_gen.index)} validation samples; early stopping {'on' if early_stop else 'off'} ===", flush=True)
     t0 = time.time()
     history = model.fit(train_gen, validation_data=val_gen, epochs=EPOCHS,
                         callbacks=callbacks, verbose=2)
@@ -849,6 +859,7 @@ def train_one(name, seed, runs, target_norm, pad_args, weights, whiten=None):
         "train_loss_at_best": hist["loss"][best],
         "best_val_mse_unnormalised": hist["val_mse_target"][best] * y_std ** 2,
         "seconds": time.time() - t0,
+        "early_stopping": early_stop,
     }
 
 
@@ -858,7 +869,7 @@ def train_one(name, seed, runs, target_norm, pad_args, weights, whiten=None):
 
 def main(argv=None):
     t_start = time.time()
-    name, seeds = parse_args(sys.argv[1:] if argv is None else argv)
+    name, seeds, early_stop = parse_args(sys.argv[1:] if argv is None else argv)
     select_config(name)
     configure_gpu()
     check_config(name, seeds)
@@ -954,7 +965,7 @@ def main(argv=None):
     summary_path = cfg_dir / "summary.json"
     summary = json.loads(summary_path.read_text()) if summary_path.exists() else []
     for seed in seeds:
-        result = train_one(name, seed, runs, target_norm, pad_args, weights, whiten)
+        result = train_one(name, seed, runs, target_norm, pad_args, weights, whiten, early_stop=early_stop)
         summary = sorted(summary + [result], key=lambda s: s["seed"])
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=4)
@@ -968,6 +979,9 @@ def main(argv=None):
                      f"{s['train_loss_at_best']:>11.4e}")
     lines.append(f"loss = {'mean relative MSE over runs' if RUN_WEIGHTING else 'MSE'} (normalised); "
                  f"val MSE (units) unweighted, target {TARGET}")
+    off = [s["seed"] for s in summary if s.get("early_stopping", True) is False]
+    if off:
+        lines.append(f"early stopping off (--no-early-stop) for seeds {off}")
     table = "\n".join(lines)
     (cfg_dir / "summary.txt").write_text(table + "\n")
     print("\n" + table)

@@ -5,6 +5,39 @@ Paths are relative to examples/RainyBenard/ unless they start with src/, tools/ 
 (those are relative to the repository root). Logs in tmp/ are on the Lenovo Legion only.
 
 
+2026-11-22  v035: template-share figure replaced; beta replaces the meaningless ratio; option --no-early-stop; seed 44 retrain
+-------------------------------------------------------------------------------------------------------------------
+- Approved by the user (2026-11-22): simulations_v2/v035/analysis/Q_template_shares.png replaced by
+  tmp/v035_analysis/Q_template_shares_fixed.png (exact template shares drawn only on d_z^2, d_y^2, d_z^2 d_y^2; md5 now
+  fd1475c21dc4049e287c159ec071dc03, before 6af45a2e18d679f39ff7aa724cf05bb1).
+- CLAUDE.md section 6 (approved by the user): before reusing a ratio or other relative metric on a new target, check
+  that its denominator is bounded away from zero on the data.
+- diagnostics/v035_q_analysis.py (approved by the user): the "mean ratio" of parts eval (sum Q^ / sum Q) and dns
+  (mean_t <Q^> / mean_t <Q>, frames 25..1000) replaced by beta = (sum Q^ - sum Q) / sum Q_c over the same cells and
+  frames, the bias of the box-integrated source term as a fraction of the latent heating (Q_c >= 0, so the denominator
+  is positive wherever the run condenses). Reported with beta_0 = -sum Q / sum Q_c, the beta of Q^ = 0: it is small,
+  because sum Q (= the box integral of d<b>/dt) nearly vanishes, so beta measures the box budget of a prediction, not
+  its skill (that is e). New option --out NAME: outputs in simulations_v2/v035/NAME/ (default analysis/), so the
+  2026-11-20 outputs are kept.
+- "v035 stencil CNN.py": new option --no-early-stop: no EarlyStopping callback; learning-rate schedule, epoch limit
+  (150) and model selection (lowest validation loss, ModelCheckpoint) unchanged; recorded per seed in summary.json
+  ("early_stopping") and summary.txt; config.json, shared by the seeds, unchanged.
+- Tests pass: tmp/v035_tests/test_v035_stencil_cnn_2.log (parse_args; the callbacks without EarlyStopping; EPOCHS epochs;
+  the records; config.json unchanged) and tmp/v035_tests/test_v035_q_analysis_4.log (beta(3, 1, 4) = 0.5, refuses
+  sum Q_c = 0; beta = 0 and beta_0 = -sum Q / sum Q_c with exact models in eval and dns; --out, a path refused).
+  Patch scripts: tmp/v035_patch_20261122/. Independent review (subagent): no error found in the code; applied: the
+  convergence check below exits 3 when it fails and stops if history.json has no learning rate per epoch.
+- Seed 44 (asked by the user: retrain until convergence; no reweighted retraining, to keep a one-to-one comparison):
+  the early-stopped model is moved, not deleted, to simulations_v2/v035/Q_a/early_stopped_seed_44_20261120/, with
+  copies of summary.json and summary.txt as they were; seed 44 is removed from v035/Q_a/summary.json (the training
+  script refuses a seed already listed). Retrained from scratch with the same seed and settings plus --no-early-stop
+  (same initial weights and data order, so it should follow the first attempt closely up to its stop at epoch 66, up
+  to GPU non-determinism), by tmp/v035_train/run_seed44_rerun.sh (log tmp/v035_train/Q_a_seed44_rerun.log). The script
+  then checks convergence against the two seeds already accepted: seed 44's final learning rate and
+  |loss(150)/loss(140) - 1| (training loss) must not exceed the larger of the values of seeds 42 and 43 (1.95e-6, 0.5 %;
+  1.56e-5, 2.3 %). If it passes, every analysis part runs into simulations_v2/v035/analysis_2/ (logs
+  tmp/v035_analysis_2/). Results: a later entry.
+
 2026-11-20  v035 Q_a trained (3 seeds) and analysed: it learned neither local operator; figure fix; a meaningless ratio
 -------------------------------------------------------------------------------------------------------------------
 - Training (tmp/v035_train/; queue.log): seed 42 15:56-17:18 UTC, 150 epochs (epoch limit), best 141, final lr 1.95e-6,

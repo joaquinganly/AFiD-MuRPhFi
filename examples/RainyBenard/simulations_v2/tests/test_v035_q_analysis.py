@@ -9,10 +9,12 @@ C. Part jac through main(): for Q_a (exact) and sum (ExactQd + ExactQc): Jt_b = 
    at the centre and 0 elsewhere, dry J_s = 0, r_rho = 1; for C4: Jt_b = 0; Q_d_a: no J_s.
 D. Part xai through main(): e_0 at round-off, the analytic Shapley credits of the exact Q (dev), efficiency, ablation of
    s leaves the dry cells unchanged.
-E. Part eval through main(): e at round-off for Q_a and sum on all, wet and dry cells; mean ratio 1; the z-profile
-   reference equals a direct computation; the recomputed validation loss is reported.
-F. Part dns through main(): every frame of the test run; e at round-off; t* and t_q from the DNS Q_c; joint histogram
-   counts the cells inside its range; refuses to overwrite.
+E. Part eval through main(): e at round-off for Q_a and sum on all, wet and dry cells; beta = 0 and
+   beta_0 = -sum Q / sum Q_c (direct computation); the z-profile reference equals a direct computation; the recomputed
+   validation loss is reported.
+F. Part dns through main(): every frame of the test run; e at round-off; beta = 0; t* and t_q from the DNS Q_c; joint
+   histogram counts the cells inside its range; refuses to overwrite.
+G. --out NAME writes to v035/NAME/; a path is refused.
 Usage (from simulations_v2/): python tests/test_v035_q_analysis.py diagnostics/v035_q_analysis.py
 """
 import os
@@ -140,7 +142,13 @@ q = {"Jb": np.arange(9.0)[None].repeat(3, 0), "JbT": np.ones((3, 9)), "Js": np.f
 d = m.describe(q, np.array([True, True, True]))
 assert np.allclose(d["Jb"][1], np.arange(9.0)) and np.isnan(d["Js"]).all() and math.isclose(d["r_rho"], 2.0) and d["n"] == 3
 assert np.isnan(m.describe(q, np.zeros(3, bool))["r_rho"])
-print("B. sum_jacobian maps the channels of Q_d_a (b, rho) and C4 (b, s); describe gives medians and r_rho")
+assert math.isclose(m.beta(3.0, 1.0, 4.0), 0.5) and math.isclose(m.beta(0.0, 1.0, 4.0), -0.25)
+try:
+    m.beta(1.0, 1.0, 0.0)
+    raise AssertionError("beta accepted sum Q_c = 0")
+except ValueError:
+    pass
+print("B. sum_jacobian maps the channels of Q_d_a (b, rho) and C4 (b, s); describe gives medians and r_rho; beta")
 
 # ---------- C. part jac ----------
 m.main(["jac"])
@@ -195,12 +203,14 @@ assert len(rows) == 2 * 3 * (2 * 2 + 1)                       # models x seeds x
 for r in rows:
     for c in ("all", "wet", "dry"):
         assert float(r[f"e_{c}"]) < 2e-6, r
-    assert abs(float(r["mean_ratio"]) - 1.0) < 1e-5, r
+    assert abs(float(r["beta"])) < 1e-5, r
 r = next(r for r in rows if r["run"] == "Ra_1e6_Pr_1" and r["set"] == "val")
 fr = list(range(17, 27, 3))
 Q = (raw["Ra_1e6_Pr_1"]["Qd"] + raw["Ra_1e6_Pr_1"]["Qc"])[:, :, fr]
 prof = Q.mean(axis=(1, 2))
 assert math.isclose(float(r["ref_all"]), math.sqrt(np.sum((prof[:, None, None] - Q) ** 2) / np.sum(Q ** 2)), rel_tol=1e-6)
+Qc_ = raw["Ra_1e6_Pr_1"]["Qc"][:, :, fr]
+assert math.isclose(float(r["beta_zero"]), -Q.sum() / Qc_.sum(), rel_tol=1e-5), (r["beta_zero"], -Q.sum() / Qc_.sum())
 assert "recomputed" in (m.OUT_DIR / "summary_eval.txt").read_text()
 print("E. eval: errors at round-off for Q_a and sum on all, wet and dry cells; z-profile reference as computed directly")
 
@@ -217,6 +227,8 @@ for tag in ("Q_a", "sum"):
     assert 0 < dn[f"{l}__{tag}__joint"].sum() <= (NT - 25) * NZ * NY
     assert np.allclose(dn[f"{l}__{tag}__42__prof"], (raw[l]["Qd"] + raw[l]["Qc"])[:, :, 25:].mean(axis=(1, 2)), rtol=0, atol=1e-6)
     assert math.sqrt(a["sse"][:25].sum() / a["sy2"][:25].sum()) < 2e-6
+    assert abs(m.beta(a["dm"][25:].mean(), dn[f"{l}__dm"][25:].mean(), dn[f"{l}__dm_c"][25:].mean())) < 1e-5
+assert "beta_0 = " in (m.OUT_DIR / "summary_dns.txt").read_text()
 try:
     m.main(["dns"])
     raise AssertionError("dns overwrote its outputs")
@@ -224,6 +236,21 @@ except SystemExit:
     pass
 for f in m.PART_OUT["dns"]:
     assert (m.OUT_DIR / f).is_file(), f
+print("F. dns: every frame; errors at round-off; beta = 0; t* and t_q from the DNS Q_c; refuses to overwrite")
+
+# ---------- G. --out ----------
+m.main(["eval", "--out", "analysis_b"])
+assert m.OUT_DIR == T35.OUT_DIR / "analysis_b"
+for f in m.PART_OUT["eval"]:
+    assert (T35.OUT_DIR / "analysis_b" / f).is_file(), f
+with open(T35.OUT_DIR / "analysis_b" / "per_run_errors.csv") as f:
+    assert all(abs(float(r["beta"])) < 1e-5 for r in csv.DictReader(f))
+for bad_out in ("../x", "a/b", ".."):
+    try:
+        m.main(["eval", "--out", bad_out])
+        raise AssertionError(f"--out {bad_out} accepted")
+    except SystemExit:
+        pass
 shutil.rmtree(tmp)
-print("F. dns: every frame; errors at round-off; t* and t_q from the DNS Q_c; refuses to overwrite")
+print("G. --out NAME writes to v035/NAME/; a path is refused")
 print("ALL v035 Q ANALYSIS TESTS PASSED")
